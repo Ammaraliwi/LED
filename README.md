@@ -28,13 +28,12 @@ finance, operations) is scoped as Phase 2 and is not included yet.
    npm install
    ```
 
-2. **Configure environment** — copy `.env` (already present in this project with working local
-   defaults) and adjust for your environment:
+2. **Configure environment** — copy `.env.example` to `.env.local` and adjust it for your
+   environment. Never commit the resulting environment file:
 
    ```
    DATABASE_URL="postgresql://user:password@localhost:5432/ledrental"
    AUTH_SECRET="<random 32+ byte secret>"
-   NEXTAUTH_URL="http://localhost:3000"
    ```
 
 3. **Provision the database** (a local Postgres example):
@@ -42,8 +41,8 @@ finance, operations) is scoped as Phase 2 and is not included yet.
    ```bash
    createuser ledapp --pwprompt --createdb
    createdb ledrental -O ledapp
-   npx drizzle-kit push          # creates all tables from src/db/schema.ts
-   npx tsx src/db/seed.ts        # seeds LED products, packages, equipment, pricing, content
+   npm run db:migrate            # applies committed, non-interactive migrations
+   npm run db:seed               # deliberate seed; never runs automatically during deploy
    ```
 
 4. **Run the dev server**
@@ -60,6 +59,106 @@ finance, operations) is scoped as Phase 2 and is not included yet.
    npm run build
    npm start
    ```
+
+## Deployment Workflow
+
+`main` is the production branch. `staging` is the pre-production integration branch. Normal
+development must happen on a short-lived `feature/*`, `fix/*`, or `chore/*` branch; developers
+and Codex must not commit feature work directly to `main`.
+
+```text
+feature/* (or fix/* / chore/*)
+        ↓ pull request + CI
+staging
+        ↓ Railway staging deployment + approval
+pull request: staging → main
+        ↓ CI
+main
+        ↓ Railway production deployment
+```
+
+Railway should watch `staging` for the staging environment and `main` for production. A release
+is promoted by opening a pull request from `staging` into `main`; do not cherry-pick ordinary
+feature work directly onto `main`.
+
+### Railway environments
+
+Create two Railway environments with separate services and databases:
+
+| Railway environment | GitHub branch | PostgreSQL | Purpose |
+| --- | --- | --- | --- |
+| `staging` | `staging` | Staging Postgres only | Integration and approval |
+| `production` | `main` | Production Postgres only | Live website |
+
+For both application services:
+
+- Build command: `npm ci && npm run build` (or Railway's equivalent Nixpacks build steps).
+- Start command: `npm start`.
+- Pre-deploy command: `npm run db:migrate`, but only after reviewing committed migration SQL and
+  confirming the database's migration baseline as described below.
+- Health-check path: `/api/health`.
+- Restart policy: restart on failure.
+
+The start script binds to `0.0.0.0`. Next.js reads Railway's injected `PORT` directly and falls
+back to port 3000 locally, so no shell-specific `${PORT:-3000}` expansion is required.
+
+Each environment must define its own values for these required application variables:
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | Use the PostgreSQL URL belonging to that Railway environment only. |
+| `AUTH_SECRET` | Yes | Use a unique, high-entropy value in each environment. |
+
+`PORT` is injected by Railway and consumed by the Next.js CLI; do not store it in `.env`.
+NextAuth is configured to trust Railway's forwarded host and protocol, so callbacks and redirects
+follow the active staging or production domain. `AUTH_URL`, `NEXTAUTH_URL`, and
+`NEXTAUTH_SECRET` are not required by this application and should not be used as substitutes for
+the two variables above. Do not copy production secrets into GitHub Actions: CI uses inert
+build-only placeholders and never connects to a database.
+
+### Database migrations and seed data
+
+Drizzle schema changes follow this reviewed, non-interactive workflow:
+
+1. Change `src/db/schema.ts` on a feature branch.
+2. Run `npm run db:generate` and review the generated SQL under `drizzle/`.
+3. Run `npm run db:check`, then commit the schema and generated migration together.
+4. Test `npm run db:migrate` against the staging database.
+5. Promote the same reviewed commit to `main`; production runs `npm run db:migrate` before the
+   new application version starts.
+
+`npm run db:push` remains available for disposable local development only. It can prompt and can
+apply schema changes without a reviewed migration, so never configure it as a Railway deploy or
+pre-deploy command.
+
+The initial migration in this repository is a baseline for new databases. If an existing Railway
+database was previously created with `drizzle-kit push`, back it up and compare it with
+`src/db/schema.ts` before enabling automatic migrations. Do not run the baseline blindly against
+an existing populated database: establish the migration baseline in a controlled maintenance
+window first.
+
+Seeding is always manual:
+
+```bash
+npm run db:seed
+```
+
+The seed script skips records it has already created where practical. Seed staging independently
+when test data is needed. Do not add `db:seed` to production build, deploy, start, or migration
+commands.
+
+### GitHub branch protection
+
+Configure these rules manually in GitHub after the CI workflow has completed at least once:
+
+- `main`: require a pull request, require the `validate` CI job, prevent direct pushes and force
+  pushes, require conversation resolution, and require the branch to be up to date when that
+  policy fits the team's merge cadence.
+- `staging`: prefer pull requests, require the `validate` CI job, prevent force pushes, and limit
+  direct pushes to controlled integration or release management only.
+
+Administrators should not bypass these rules for normal development. Railway and database
+credentials belong in Railway environment variables, not GitHub repository secrets.
 
 ## Architecture Notes
 
