@@ -6,6 +6,9 @@ import { users, customers } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  // Railway terminates TLS and forwards the original host/protocol. Trusting
+  // those headers lets each environment use its own domain without a hard-coded URL.
+  trustHost: true,
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
