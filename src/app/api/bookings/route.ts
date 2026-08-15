@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
       includeDismantling: body.includeDismantling,
       includeTransport: body.includeTransport,
       includeProcessor: body.includeProcessor,
-      includeTechnician: body.includeTechnician,
+      includeTechnician: true,
       addons: addonLines,
       isWeekend: body.isWeekend,
       isCorporate,
@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
           includeDismantling: body.includeDismantling,
           includeTransport: body.includeTransport,
           includeProcessor: body.includeProcessor,
-          includeTechnician: body.includeTechnician,
+          includeTechnician: true,
 
           rentalSubtotal: String(breakdown.rentalSubtotal),
           installationFee: String(breakdown.installationFee),
