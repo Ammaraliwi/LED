@@ -143,6 +143,17 @@ Seeding is always manual:
 npm run db:seed
 ```
 
+When approved pricing values change, update an already-seeded environment explicitly:
+
+```bash
+npm run db:update-pricing
+```
+
+The pricing updater changes only the three LED cabinet daily rates, the approved core pricing
+settings, and the matching processor/operator equipment rates. It runs in a transaction and
+fails without partial changes if any expected row is missing. Run it separately for each intended
+environment; it is never part of build, deploy, start, or migration commands.
+
 The seed script skips records it has already created where practical. Seed staging independently
 when test data is needed. Do not add `db:seed` to production build, deploy, start, or migration
 commands.

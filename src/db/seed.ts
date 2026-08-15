@@ -10,6 +10,11 @@ import {
   siteStats,
   faqs,
 } from "./schema";
+import {
+  CORE_PRICING_SETTING_UPDATES,
+  EQUIPMENT_DAILY_RATES,
+  LED_PRODUCT_DAILY_RATES,
+} from "./pricing-values";
 
 async function seed() {
   console.log("Seeding database...");
@@ -25,7 +30,7 @@ async function seed() {
       brightnessNits: 1200,
       refreshRateHz: 3840,
       totalCabinets: 320,
-      pricePerCabinetPerDay: "85.00",
+      pricePerCabinetPerDay: LED_PRODUCT_DAILY_RATES["indoor-p2-6"],
       imageUrl: "/images/screen-indoor-p26.jpg",
       description: "Ultra-fine pixel pitch for close-viewing conferences, galas and broadcast-quality stage backdrops.",
       isFeatured: true,
@@ -40,7 +45,7 @@ async function seed() {
       brightnessNits: 1000,
       refreshRateHz: 3840,
       totalCabinets: 400,
-      pricePerCabinetPerDay: "70.00",
+      pricePerCabinetPerDay: LED_PRODUCT_DAILY_RATES["indoor-p2-9"],
       imageUrl: "/images/screen-indoor-p29.jpg",
       description: "The industry workhorse — crisp indoor imagery for exhibitions, product launches and corporate events.",
       isFeatured: true,
@@ -55,7 +60,7 @@ async function seed() {
       brightnessNits: 5500,
       refreshRateHz: 3840,
       totalCabinets: 280,
-      pricePerCabinetPerDay: "60.00",
+      pricePerCabinetPerDay: LED_PRODUCT_DAILY_RATES["indoor-outdoor-p3-9"],
       imageUrl: "/images/screen-outdoor-p39.jpg",
       description: "High-brightness weatherproof panels engineered for festivals, stages and outdoor activations.",
       isFeatured: true,
@@ -63,7 +68,7 @@ async function seed() {
   ]).onConflictDoNothing();
 
   const equipmentSeed = [
-    { name: "LED Video Processor", category: "Processing", pricePerDay: "450.00", totalQuantity: 12, icon: "cpu" },
+    { name: "LED Video Processor", category: "Processing", pricePerDay: EQUIPMENT_DAILY_RATES["LED Video Processor"], totalQuantity: 12, icon: "cpu" },
     { name: "Video Switcher", category: "Processing", pricePerDay: "350.00", totalQuantity: 8, icon: "shuffle" },
     { name: "Presentation Laptop", category: "Computing", pricePerDay: "120.00", totalQuantity: 15, icon: "laptop" },
     { name: "HDMI / SDI Signal Kit", category: "Signal", pricePerDay: "80.00", totalQuantity: 25, icon: "cable" },
@@ -72,7 +77,7 @@ async function seed() {
     { name: "Line Array Speakers (pair)", category: "Audio", pricePerDay: "500.00", totalQuantity: 10, icon: "speaker" },
     { name: "Wireless Microphone Kit", category: "Audio", pricePerDay: "150.00", totalQuantity: 20, icon: "mic" },
     { name: "Architectural Lighting Kit", category: "Lighting", pricePerDay: "400.00", totalQuantity: 12, icon: "sparkles" },
-    { name: "On-Site Technical Operator", category: "Staffing", pricePerDay: "600.00", totalQuantity: 8, icon: "user-cog" },
+    { name: "On-Site Technical Operator", category: "Staffing", pricePerDay: EQUIPMENT_DAILY_RATES["On-Site Technical Operator"], totalQuantity: 8, icon: "user-cog" },
     { name: "Backup LED Modules (per 10)", category: "Redundancy", pricePerDay: "200.00", totalQuantity: 20, icon: "shield-check" },
     { name: "Power Distribution Unit", category: "Power", pricePerDay: "180.00", totalQuantity: 15, icon: "plug-zap" },
   ];
@@ -122,17 +127,11 @@ async function seed() {
   ]).onConflictDoNothing();
 
   await db.insert(pricingSettings).values([
-    { key: "installation_fee_per_cabinet", value: 12, label: "Installation fee per cabinet (QAR)" },
-    { key: "dismantling_fee_per_cabinet", value: 8, label: "Dismantling fee per cabinet (QAR)" },
-    { key: "transport_fee_base", value: 600, label: "Base transportation fee (QAR)" },
-    { key: "transport_fee_per_cabinet", value: 3, label: "Additional transport per cabinet (QAR)" },
-    { key: "technician_daily_rate", value: 600, label: "Technician daily rate (QAR)" },
-    { key: "processor_daily_rate", value: 450, label: "LED processor daily rate (QAR)" },
+    ...CORE_PRICING_SETTING_UPDATES,
     { key: "multi_day_discount_curve", value: { day1: 1.0, day2: 0.85, day3: 0.75, day4Plus: 0.65 }, label: "Multi-day rental discount curve" },
     { key: "vat_percent", value: 5, label: "VAT / Tax percentage" },
     { key: "weekend_multiplier", value: 1.1, label: "Weekend pricing multiplier" },
     { key: "corporate_discount_percent", value: 5, label: "Corporate customer discount %" },
-    { key: "minimum_rental_price", value: 2500, label: "Minimum rental price (QAR)" },
   ]).onConflictDoNothing();
 
   const testimonialSeed = [
