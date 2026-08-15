@@ -1,16 +1,15 @@
-import { auth } from "@/auth";
 import { db } from "@/db";
 import { customers } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { Container } from "@/components/ui/container";
 import { ProfileForm } from "@/components/portal/profile-form";
+import { requireCustomer } from "@/lib/admin/authz";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
-  const session = await auth();
-  const customerId = Number(session!.user!.customerId);
+  const { customerId, email } = await requireCustomer();
 
   const [customer] = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
   if (!customer) notFound();
@@ -21,7 +20,7 @@ export default async function ProfilePage() {
       <p className="mt-1 text-sm text-muted">Manage your contact and billing information.</p>
 
       <div className="mt-8">
-        <ProfileForm customer={customer} email={session!.user!.email ?? ""} />
+        <ProfileForm customer={customer} email={email} />
       </div>
     </Container>
   );

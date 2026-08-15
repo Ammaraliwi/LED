@@ -1,63 +1,22 @@
-import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { computePricing } from "@/lib/pricing";
-import { getPricingSettingsMap } from "@/lib/settings";
-import { db } from "@/db";
-import { equipment as equipmentTable } from "@/db/schema";
-import { inArray } from "drizzle-orm";
+import { NextResponse } from "next/server";
+import { auth } from "@/auth";
+import { trustedQuoteRequestSchema } from "@/lib/booking-input";
+import { calculateTrustedQuote } from "@/lib/booking/pricing-service";
 
-const schema = z.object({
-  pricePerCabinetPerDay: z.number(),
-  totalCabinets: z.number().min(0),
-  rentalDays: z.number().min(1),
-  includeInstallation: z.boolean().default(true),
-  includeDismantling: z.boolean().default(true),
-  includeTransport: z.boolean().default(true),
-  includeProcessor: z.boolean().default(true),
-  includeTechnician: z.boolean().default(true),
-  addons: z.array(z.object({ equipmentId: z.number(), quantity: z.number().min(1) })).default([]),
-  isWeekend: z.boolean().default(false),
-  isCorporate: z.boolean().default(false),
-});
-
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const body = schema.parse(await req.json());
-    const settings = await getPricingSettingsMap();
-
-    let addonLines: { equipmentId: number; name: string; quantity: number; pricePerDay: number }[] = [];
-    if (body.addons.length > 0) {
-      const ids = body.addons.map((a) => a.equipmentId);
-      const rows = await db.select().from(equipmentTable).where(inArray(equipmentTable.id, ids));
-      addonLines = body.addons.map((a) => {
-        const row = rows.find((r) => r.id === a.equipmentId);
-        return {
-          equipmentId: a.equipmentId,
-          name: row?.name ?? "Add-on",
-          quantity: a.quantity,
-          pricePerDay: row ? Number(row.pricePerDay) : 0,
-        };
-      });
-    }
-
-    const breakdown = computePricing({
-      pricePerCabinetPerDay: body.pricePerCabinetPerDay,
-      totalCabinets: body.totalCabinets,
-      rentalDays: body.rentalDays,
-      includeInstallation: body.includeInstallation,
-      includeDismantling: body.includeDismantling,
-      includeTransport: body.includeTransport,
-      includeProcessor: body.includeProcessor,
-      includeTechnician: true,
-      addons: addonLines,
-      isWeekend: body.isWeekend,
-      isCorporate: body.isCorporate,
-      settings,
+    const input = trustedQuoteRequestSchema.parse(await request.json());
+    const session = await auth();
+    const customerId = Number(session?.user?.customerId);
+    const quote = await calculateTrustedQuote(input, Number.isInteger(customerId) ? customerId : null);
+    return NextResponse.json({
+      ...quote.breakdown,
+      configuration: quote.configuration,
+      rentalDays: quote.rentalDays,
+      pricingFormulaVersion: quote.pricingFormulaVersion,
     });
-
-    return NextResponse.json(breakdown);
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid request";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

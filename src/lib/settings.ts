@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { pricingSettings } from "@/db/schema";
 import type { PricingSettingsMap } from "@/lib/pricing";
+import { validateCompletePricingSettings } from "@/lib/pricing-catalog";
 
 export async function getPricingSettingsMap(): Promise<PricingSettingsMap> {
   const rows = await db.select().from(pricingSettings);
@@ -8,7 +9,7 @@ export async function getPricingSettingsMap(): Promise<PricingSettingsMap> {
   for (const row of rows) {
     map[row.key] = row.value;
   }
-  return map;
+  return validateCompletePricingSettings(map);
 }
 
 export function generateBookingNumber(): string {

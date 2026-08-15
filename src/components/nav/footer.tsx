@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/logo";
 import { Container } from "@/components/ui/container";
-const socials = ["IG", "IN", "FB"];
+import { getSiteSettings } from "@/lib/cms/service";
 
 const columns = [
   {
@@ -32,7 +32,9 @@ const columns = [
   },
 ];
 
-export function Footer() {
+export async function Footer() {
+  const settings = await getSiteSettings();
+  const socialLinks = [{ label: "IG", href: String(settings["social.instagram"] || "") }, { label: "IN", href: String(settings["social.linkedin"] || "") }].filter((item) => item.href);
   return (
     <footer className="border-t border-border bg-surface/40 pt-20 pb-10">
       <Container>
@@ -40,14 +42,15 @@ export function Footer() {
           <div className="col-span-2">
             <Logo />
             <p className="mt-5 max-w-xs text-sm leading-relaxed text-muted">
-              Premium modular LED screens for conferences, exhibitions, celebrations and live events — delivered,
-              installed and supported by our technical team.
+              {String(settings["footer.description"] || "Premium modular LED screens for conferences, exhibitions, celebrations and live events — delivered, installed and supported by our technical team.")}
             </p>
             <div className="mt-6 flex gap-3">
-              {socials.map((label) => (
+              {socialLinks.map(({ label, href }) => (
                 <a
                   key={label}
-                  href="#"
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
                   className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-[10px] font-semibold text-muted hover:text-accent hover:border-accent/40 transition-colors"
                 >
                   {label}
@@ -74,9 +77,9 @@ export function Footer() {
           <div>
             <h4 className="text-sm font-semibold text-foreground">Contact</h4>
             <ul className="mt-4 space-y-3 text-sm text-muted">
-              <li>Doha, Qatar</li>
-              <li>+974 4000 1234</li>
-              <li>hello@ledwave.events</li>
+              <li>{String(settings["contact.address"] || "Doha, Qatar")}</li>
+              <li>{String(settings["contact.phone"] || "+974 4000 1234")}</li>
+              <li>{String(settings["contact.email"] || "hello@ledwave.events")}</li>
               <li>24/7 Event Support</li>
             </ul>
           </div>

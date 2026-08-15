@@ -5,6 +5,8 @@ import { Container } from "@/components/ui/container";
 import { StatCounter } from "@/components/ui/stat-counter";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Target, Eye, Handshake } from "lucide-react";
+import { eq } from "drizzle-orm";
+import { getPublishedSection } from "@/lib/cms/service";
 
 export const dynamic = "force-dynamic";
 
@@ -15,14 +17,17 @@ const values = [
 ];
 
 export default async function AboutPage() {
-  const stats = await db.select().from(siteStats).orderBy(siteStats.sortOrder);
+  const [stats, intro] = await Promise.all([
+    db.select().from(siteStats).where(eq(siteStats.isActive, true)).orderBy(siteStats.sortOrder),
+    getPublishedSection("about", "intro", { heading: "An event technology company, not an equipment counter.", body: "LEDWAVE was founded to bring broadcast-grade LED technology to live events across Qatar and the Gulf — with the transparency and speed of a modern technology platform." }),
+  ]);
 
   return (
     <>
       <PageHero
         eyebrow="About Us"
-        title="An event technology company, not an equipment counter."
-        description="LEDWAVE was founded to bring broadcast-grade LED technology to live events across Qatar and the Gulf — with the transparency and speed of a modern technology platform."
+        title={intro.heading}
+        description={intro.body}
       />
 
       <section className="pb-20">

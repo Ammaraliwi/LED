@@ -1,235 +1,250 @@
-# LEDWAVE — Premium LED Screen Rental & Booking Platform
+# LEDWAVE
 
-A production-grade Next.js application for an event-technology company renting modular LED
-screens. This is **Phase 1**: the full public marketing site, the interactive screen
-configurator, real-time availability + dynamic pricing, checkout, authentication, and the
-customer portal — all backed by a real PostgreSQL database. The Admin Portal (inventory, CRM,
-finance, operations) is scoped as Phase 2 and is not included yet.
+LEDWAVE is a Next.js 16 platform for configuring, quoting and booking modular LED screens. It includes the public website, a customer portal and a database-driven staff Admin Portal.
 
 ## Stack
 
-- **Framework:** Next.js 16 (App Router, Server Components, Route Handlers)
-- **Database:** PostgreSQL, accessed via [Drizzle ORM](https://orm.drizzle.team/) (chosen over
-  Prisma because Prisma's engine binaries could not be downloaded in the build sandbox — Drizzle
-  is pure TypeScript with no native binaries, and is a fully supported production-grade ORM)
-- **Auth:** NextAuth v5 (Credentials provider, JWT sessions, bcrypt password hashing)
-- **Styling:** Tailwind CSS v4, custom dark cinematic design system (see `src/app/globals.css`)
-- **Animation:** Framer Motion
-- **Validation:** Zod on every API route
-- **File storage:** Local filesystem under `public/uploads` behind a single route
-  (`src/app/api/upload/route.ts`) — swap this one file for an S3/R2 client to go to production
-  cloud storage without touching any calling code.
+- Next.js 16 App Router, React 19 and TypeScript
+- PostgreSQL with Drizzle ORM
+- Auth.js credentials authentication with bcrypt, JWT sessions, server-side database rechecks and staff TOTP MFA
+- Zod validation, Tailwind CSS and S3-compatible object storage
 
-## Getting Started
+## Admin Portal
 
-1. **Install dependencies**
+The protected Admin routes are:
 
-   ```bash
-   npm install
-   ```
+| Route | Purpose |
+| --- | --- |
+| `/admin` | Booking, revenue, balance, fleet utilization, upcoming job and audit metrics |
+| `/admin/products` | LED product catalog, rates and total cabinet inventory |
+| `/admin/products/[id]` | Product editing and date-bound inventory blocks |
+| `/admin/pricing` | Product rates, services, discount curve, weekend factor, tax, preview and audit history |
+| `/admin/bookings` | Searchable/filterable booking list |
+| `/admin/bookings/[id]` | Event, immutable price snapshot, status history, notes, assignments and documents |
+| `/admin/customers` | Customer search and account status |
+| `/admin/customers/[id]` | Profile, company data, internal notes, booking and finance history |
+| `/admin/payments` | Transactional payment/refund ledger |
+| `/admin/invoices` | Invoice creation, editing and reconciled status |
+| `/admin/content` | Structured drafts, publishing, records and revisions |
+| `/admin/content/preview` | Protected draft-data preview |
+| `/admin/media` | Public/private object-storage media library |
+| `/admin/users` | Invite-only staff management, roles, activation, MFA reset and session revocation |
+| `/admin/settings` | MFA enrollment, site settings and contact submissions |
+| `/admin/audit-log` | Append-only privileged activity history |
 
-2. **Configure environment** — copy `.env.example` to `.env.local` and adjust it for your
-   environment. Never commit the resulting environment file:
+The public website layout and React components remain in code. Admin users edit validated content fields; the CMS does not accept arbitrary HTML or executable markup.
 
-   ```
-   DATABASE_URL="postgresql://user:password@localhost:5432/ledrental"
-   AUTH_SECRET="<random 32+ byte secret>"
-   ```
+## Roles and permissions
 
-3. **Provision the database** (a local Postgres example):
+Authorization is enforced in server routes and data-access functions. Sidebar visibility is only a UX convenience. Privileged requests re-read the active account, role, session version and MFA state from PostgreSQL.
 
-   ```bash
-   createuser ledapp --pwprompt --createdb
-   createdb ledrental -O ledapp
-   npm run db:migrate            # applies committed, non-interactive migrations
-   npm run db:seed               # deliberate seed; never runs automatically during deploy
-   ```
+| Role | Primary access |
+| --- | --- |
+| `super_admin` | Every permission, staff/role management, settings and publishing; MFA required |
+| `sales` | Products/inventory/pricing read, bookings/customers write, finance read, content/media write |
+| `operations` | Products/inventory write, pricing read, bookings/status write, customers read, media write and staff read |
+| `technician` | Assigned bookings and operational status transitions, inventory/media read; no financial metrics or customer management |
+| `finance` | Dashboard, products/pricing/bookings/customers read, payments record, invoices write and audit read; MFA required |
+| `customer` | Customer portal only; no Admin permission or Admin API access |
 
-4. **Run the dev server**
+The canonical matrix is in `src/lib/admin/permissions.ts`. Public registration always inserts `role = customer`; staff accounts exist only through one-time invitations.
 
-   ```bash
-   npm run dev
-   ```
+## Pricing and booking integrity
 
-   Visit `http://localhost:3000`.
+The browser submits product ID, requested dimensions and dates, selected service flags, equipment IDs and private media IDs. It cannot submit cabinet count, rental days, product rate, weekend/corporate flags, discount values or totals.
 
-5. **Production build**
+The server:
 
-   ```bash
-   npm run build
-   npm start
-   ```
+1. loads the active product, equipment, customer type and complete pricing catalog from PostgreSQL;
+2. derives the cabinet grid, rental duration and Qatar weekend state;
+3. calculates the authoritative price with reviewed formulas;
+4. locks pricing and the selected product with PostgreSQL transaction advisory locks;
+5. checks every rental day against committed bookings and inventory blocks;
+6. inserts the booking, history, documents and invoice atomically; and
+7. stores `pricingSnapshot` plus `pricingFormulaVersion` on the booking.
 
-## Deployment Workflow
+Admin pricing changes affect only future calculations. Historical booking totals and snapshots are never recalculated. Seeds use `ON CONFLICT DO NOTHING` and do not overwrite Admin-managed values.
 
-`main` is the production branch. `staging` is the pre-production integration branch. Normal
-development must happen on a short-lived `feature/*`, `fix/*`, or `chore/*` branch; developers
-and Codex must not commit feature work directly to `main`.
+## Finance integrity
 
-```text
-feature/* (or fix/* / chore/*)
-        ↓ pull request + CI
-staging
-        ↓ Railway staging deployment + approval
-pull request: staging → main
-        ↓ CI
-main
-        ↓ Railway production deployment
-```
+Payments are an append-only ledger. Refunds are negative records linked to the original payment. Payment recording, refund limits, booking `amountPaid`/`paymentStatus`, and related invoice statuses reconcile under one booking-level advisory lock and one database transaction. A posted payment is never edited or deleted through Admin.
 
-Railway should watch `staging` for the staging environment and `main` for production. A release
-is promoted by opening a pull request from `staging` into `main`; do not cherry-pick ordinary
-feature work directly onto `main`.
+## Media and storage
 
-### Railway environments
+`public/uploads` is no longer used for persistent uploads. The application stores generated object keys in PostgreSQL and creates short-lived SigV4 URLs for an S3-compatible service such as Railway Storage Buckets.
 
-Create two Railway environments with separate services and databases:
+- Public classification: JPEG, PNG and WebP, 10 MB maximum.
+- Private classification: JPEG, PNG, WebP and PDF, 15 MB maximum.
+- Uploads are checked by magic bytes; images are dimension-inspected and suspicious active/embedded PDF markers are rejected.
+- Public website assets and private booking documents use separate buckets.
+- Private downloads require a current staff permission, upload ownership, or a booking owned by the current customer.
+- Pending, quarantined and soft-deleted media records plus `deletedAt` support a controlled orphan-cleanup job. Object deletion is intentionally not automatic because references and recovery must be reviewed first.
 
-| Railway environment | GitHub branch | PostgreSQL | Purpose |
-| --- | --- | --- | --- |
-| `staging` | `staging` | Staging Postgres only | Integration and approval |
-| `production` | `main` | Production Postgres only | Live website |
+Configure bucket CORS to allow `PUT` from the exact staging/production application origins. Keep both buckets non-listable; the application can serve public-classified assets through signed URLs even when the bucket itself is private.
 
-For both application services:
+## MFA and account recovery
 
-- Build command: `npm ci && npm run build` (or Railway's equivalent Nixpacks build steps).
-- Start command: `npm start`.
-- Pre-deploy command: `npm run db:migrate`, but only after reviewing committed migration SQL and
-  confirming the database's migration baseline as described below.
-- Health-check path: `/api/health`.
-- Restart policy: restart on failure.
+Staff MFA uses TOTP (SHA-1, 30-second window) with AES-256-GCM-encrypted secrets. `MFA_ENCRYPTION_KEY` must decode to exactly 32 bytes. Eight one-time recovery codes are shown once and stored only as SHA-256 hashes. Used recovery codes are atomically removed.
 
-The start script binds to `0.0.0.0`. Next.js reads Railway's injected `PORT` directly and falls
-back to port 3000 locally, so no shell-specific `${PORT:-3000}` expansion is required.
+`super_admin` and `finance` cannot use protected Admin operations until MFA is enabled and verified. Other staff roles are strongly encouraged to enroll. MFA resets and password changes increment `sessionVersion`, invalidating existing sessions. Password reset tokens and staff invitation tokens are random, short-lived, stored only as hashes and single-use.
 
-Each environment must define its own values for these required application variables:
+Notification delivery uses an optional server-to-server webhook. If it is not configured, Admin shows the one-time staff invitation link for secure manual delivery. Password-reset emails require the webhook.
+
+## First `super_admin` bootstrap
+
+There is no default password and no seeded Admin account. Bootstrap only creates a 30-minute one-time invitation and refuses to run once any active staff user exists.
+
+1. Apply the reviewed migrations to the intended empty/new staging database.
+2. Temporarily set `ADMIN_BOOTSTRAP_TOKEN` to at least 32 random characters, `BOOTSTRAP_ADMIN_EMAIL` to the owner email and `APP_URL` to the exact staging HTTPS origin.
+3. Run `npm run admin:bootstrap` once in a Railway staging shell/job.
+4. Open the printed one-time URL, choose a 12–72 character password with uppercase, lowercase and a number, then sign in.
+5. Enroll MFA immediately and save the recovery codes offline.
+6. Remove `ADMIN_BOOTSTRAP_TOKEN` and `BOOTSTRAP_ADMIN_EMAIL` from Railway.
+
+After bootstrap, invite all other staff from `/admin/users`.
+
+## Environment variables
+
+Never commit values. Use distinct secrets and buckets for staging and production.
 
 | Variable | Required | Notes |
 | --- | --- | --- |
-| `DATABASE_URL` | Yes | Use the PostgreSQL URL belonging to that Railway environment only. |
-| `AUTH_SECRET` | Yes | Use a unique, high-entropy value in each environment. |
+| `DATABASE_URL` | Yes | PostgreSQL URL for this environment only |
+| `AUTH_SECRET` | Yes | High-entropy Auth.js/session secret |
+| `RATE_LIMIT_SALT` | Recommended | Separate high-entropy salt; falls back to `AUTH_SECRET` |
+| `APP_URL` | Yes | Exact public origin, for example `https://staging.example.com` |
+| `MFA_ENCRYPTION_KEY` | Yes for staff MFA | Base64-encoded 32-byte key; loss prevents TOTP-secret decryption |
+| `STORAGE_ENDPOINT` | Yes for uploads | HTTPS S3-compatible endpoint |
+| `STORAGE_REGION` | Yes | Provider region, or `auto` when supported |
+| `STORAGE_ACCESS_KEY_ID` | Yes for uploads | Private server credential |
+| `STORAGE_SECRET_ACCESS_KEY` | Yes for uploads | Private server credential |
+| `STORAGE_SESSION_TOKEN` | Optional | Temporary credential token when supplied by provider |
+| `STORAGE_PUBLIC_BUCKET` | Yes for uploads | Bucket for public-classified media |
+| `STORAGE_PRIVATE_BUCKET` | Yes for uploads | Bucket for private documents |
+| `STORAGE_FORCE_PATH_STYLE` | Yes | `true` for path-style endpoints; `false` for virtual-host style |
+| `NOTIFICATIONS_WEBHOOK_URL` | Optional | HTTPS email/notification adapter endpoint |
+| `NOTIFICATIONS_WEBHOOK_TOKEN` | Optional | Bearer secret for the notification adapter |
+| `ADMIN_BOOTSTRAP_TOKEN` | Bootstrap only | Remove immediately after first Admin creation |
+| `BOOTSTRAP_ADMIN_EMAIL` | Bootstrap only | Remove immediately after first Admin creation |
 
-`PORT` is injected by Railway and consumed by the Next.js CLI; do not store it in `.env`.
-NextAuth is configured to trust Railway's forwarded host and protocol, so callbacks and redirects
-follow the active staging or production domain. `AUTH_URL`, `NEXTAUTH_URL`, and
-`NEXTAUTH_SECRET` are not required by this application and should not be used as substitutes for
-the two variables above. Do not copy production secrets into GitHub Actions: CI uses inert
-build-only placeholders and never connects to a database.
+`PORT` is supplied by Railway. `AUTH_URL`, `NEXTAUTH_URL` and `NEXTAUTH_SECRET` are not used.
 
-### Database migrations and seed data
+Generate secrets, for example:
 
-Drizzle schema changes follow this reviewed, non-interactive workflow:
+```bash
+openssl rand -base64 48                 # AUTH_SECRET / RATE_LIMIT_SALT
+openssl rand -base64 32                 # MFA_ENCRYPTION_KEY
+```
 
-1. Change `src/db/schema.ts` on a feature branch.
-2. Run `npm run db:generate` and review the generated SQL under `drizzle/`.
-3. Run `npm run db:check`, then commit the schema and generated migration together.
-4. Test `npm run db:migrate` against the staging database.
-5. Promote the same reviewed commit to `main`; production runs `npm run db:migrate` before the
-   new application version starts.
+## Local development
 
-`npm run db:push` remains available for disposable local development only. It can prompt and can
-apply schema changes without a reviewed migration, so never configure it as a Railway deploy or
-pre-deploy command.
+```bash
+npm ci
+cp .env.example .env.local
+npm run db:migrate
+npm run db:seed
+npm run dev
+```
 
-The initial migration in this repository is a baseline for new databases. If an existing Railway
-database was previously created with `drizzle-kit push`, back it up and compare it with
-`src/db/schema.ts` before enabling automatic migrations. Do not run the baseline blindly against
-an existing populated database: establish the migration baseline in a controlled maintenance
-window first.
+Validation:
 
-Seeding is always manual:
+```bash
+npm run test
+npm run lint
+npm run typecheck
+npm run db:check
+npm run build
+```
+
+Set `RUN_INTEGRATION_TESTS=true` only against a disposable database after applying migrations. It enables the real concurrent-booking and finance-transaction integration test.
+
+## Migration policy and timezones
+
+`drizzle/0001_jazzy_thunderbolt.sql` and `drizzle/0002_past_hardball.sql` are additive. They create Admin/security tables, indexes and foreign keys and add nullable/defaulted columns; they do not delete or recalculate historical business data. The second migration separates CMS drafts from the last published version so saving a draft cannot change the public website.
+
+Existing timezone-naive columns remain unchanged. New audit/security timestamps use `timestamptz`. The added `changedAtUtc` and `recordedAtUtc` fields remain null for historical records so migration time is not misrepresented as event/payment time. New values use PostgreSQL UTC timestamps. Event and rental dates remain Qatar business date/time fields; the application treats weekends as Friday/Saturday and invoice due dates as end-of-day `Asia/Qatar`.
+
+Do not run `db:push` on staging or production. Do not run `db:seed` during deploy. Review migration SQL and back up the target database before every first application.
+
+## Railway Staging procedure
+
+The feature branch must first be reviewed and merged into `staging`; this repository does not deploy or merge automatically from the feature PR.
+
+Manual staging configuration:
+
+1. Use a staging-only Railway application service, PostgreSQL service and two staging-only storage buckets.
+2. Connect the application service to branch `staging`, never `feature/admin-portal` for production.
+3. Set the environment variables above with staging-only values.
+4. Configure bucket CORS for the exact staging origin and methods `PUT`, `GET`, `HEAD`.
+5. Set build command to `npm ci && npm run build`.
+6. Set start command to `npm start`.
+7. Set health check to `/api/health`.
+8. Do not add seed/bootstrap to deploy or start commands.
+
+After taking a staging backup and reviewing the SQL, run exactly:
+
+```bash
+npm ci
+npm run db:check
+npm run db:migrate
+npm run test
+npm run build
+```
+
+For a brand-new staging database only, bootstrap catalog/content once:
 
 ```bash
 npm run db:seed
 ```
 
-When approved pricing values change, update an already-seeded environment explicitly:
+Then run the first-super-admin process above. For an existing populated database, do not run the seed unless the missing-record behavior has been explicitly reviewed.
+
+## Staging acceptance checklist
+
+- Customer registration always creates a customer and redirects to `/portal`.
+- Customer, inactive and revoked accounts cannot open Admin routes/APIs.
+- Every staff role sees only its permitted navigation and receives 403 from disallowed APIs.
+- Super Admin and finance are forced through MFA; TOTP and one recovery code work, and reuse fails.
+- Product create/edit/archive and maintenance blocks are audited.
+- Lowering inventory below committed peak fails.
+- Two simultaneous bookings for the final cabinets produce one success and one conflict.
+- Manipulated quote/booking payloads with cabinet count/rates/totals are rejected.
+- Existing booking totals remain unchanged after a pricing edit; a new quote uses the new value.
+- Booking status transitions reject unsafe jumps and record old/new status, actor, source, note and UTC time.
+- Technician sees only assigned bookings and no financial dashboard values.
+- Payment, partial/full refund, invoice and booking balances remain synchronized.
+- CMS draft does not change the public site; publish does; unsafe markup fails validation; revision is recorded.
+- Public image upload renders; private document cannot be opened by another customer.
+- File type spoofing, oversize files and suspicious PDFs are rejected/quarantined.
+- Contact submissions are visible in Admin and absent from application PII logs.
+- Staff role change/deactivation/session revoke takes effect on the next protected request.
+- The final active `super_admin` cannot be deactivated or demoted.
+- Audit entries omit passwords, tokens, recovery codes, cookies and signed URLs.
+- `/api/health`, responsive Admin navigation, loading, error, empty and pagination states work.
+
+## Backup and rollback
+
+Before staging or production migration, create a provider snapshot and a logical backup:
 
 ```bash
-npm run db:update-pricing
+pg_dump --format=custom --no-owner --no-acl "$DATABASE_URL" --file=ledwave-before-admin.dump
+pg_restore --list ledwave-before-admin.dump > ledwave-before-admin.contents.txt
 ```
 
-The pricing updater changes only the three LED cabinet daily rates, the approved core pricing
-settings, and the matching processor/operator equipment rates. It runs in a transaction and
-fails without partial changes if any expected row is missing. Run it separately for each intended
-environment; it is never part of build, deploy, start, or migration commands.
+Store the dump outside the application service and verify it is non-empty. Test restoration into a separate disposable database when possible:
 
-The seed script skips records it has already created where practical. Seed staging independently
-when test data is needed. Do not add `db:seed` to production build, deploy, start, or migration
-commands.
+```bash
+createdb ledwave_restore_test
+pg_restore --clean --if-exists --no-owner --no-acl --dbname=ledwave_restore_test ledwave-before-admin.dump
+```
 
-### GitHub branch protection
+Application rollback is to redeploy the previous known-good commit. Because the migration is additive, the previous application ignores new tables/columns. Do not hand-delete Admin tables during an incident. If a full database rollback is approved, stop writes, preserve a new incident snapshot, restore the pre-migration dump into a new PostgreSQL service, validate counts/checksums, then repoint the application. This discards all writes after the backup and therefore requires explicit business approval.
 
-Configure these rules manually in GitHub after the CI workflow has completed at least once:
+## Delivery workflow
 
-- `main`: require a pull request, require the `validate` CI job, prevent direct pushes and force
-  pushes, require conversation resolution, and require the branch to be up to date when that
-  policy fits the team's merge cadence.
-- `staging`: prefer pull requests, require the `validate` CI job, prevent force pushes, and limit
-  direct pushes to controlled integration or release management only.
+```text
+feature/admin-portal -> Draft PR to staging -> CI -> review -> Railway Staging test
+staging -> reviewed PR to main -> Production
+```
 
-Administrators should not bypass these rules for normal development. Railway and database
-credentials belong in Railway environment variables, not GitHub repository secrets.
-
-## Architecture Notes
-
-### Database schema (`src/db/schema.ts`)
-
-Covers: `users`, `customers`, `ledProducts`, `equipment`, `packages`, `pricingSettings`,
-`bookings`, `bookingAddons`, `bookingDocuments`, `bookingStatusHistory`, `invoices`, `payments`,
-plus editable homepage content (`testimonials`, `projects`, `siteStats`, `faqs`). Enums model
-booking status, payment status, customer type, event type and admin roles (`user_role` already
-includes `super_admin` / `sales` / `operations` / `technician` / `finance` for the Phase 2 admin
-build-out).
-
-### Pricing engine (`src/lib/pricing.ts`)
-
-A single pure function, `computePricing()`, is the source of truth for every price shown
-anywhere in the app. It is called:
-
-- Client-side (via `POST /api/quote`) for the **live-updating quotation** as a customer
-  configures a screen.
-- Server-side again, authoritatively, inside `POST /api/bookings` at the moment a booking is
-  created — so a client can never submit a price it computed itself.
-
-Multi-day discount curves, installation/dismantling/transport fees, technician & processor
-rates, weekend multiplier, corporate discount and VAT are all read from the `pricingSettings`
-table (key/value + JSON), so they can be changed without a code deploy once an admin UI exists.
-
-### Inventory & double-booking prevention
-
-`POST /api/availability` and `POST /api/bookings` both sum `totalCabinets` across all
-**non-cancelled, non-draft** bookings for a product whose `[installationDate, dismantlingDate]`
-window overlaps the requested window, and compare that against the product's `totalCabinets`.
-The booking route re-validates this **inside the same request** right before insert (not trusting
-the client's last availability check), so two customers racing for the last cabinets can't both
-succeed.
-
-### Booking wizard (`src/components/configure/booking-wizard.tsx`)
-
-A single client-side state machine (no page reloads between steps) — Screen → Dates → Services →
-Event Details → Account → Review — with a persistent live-quote sidebar. Availability and price
-are re-fetched (debounced) on every relevant change. Authenticated users skip the Account step
-automatically.
-
-### Customer portal (`src/app/portal/**`)
-
-Server-rendered, session-gated (`src/app/portal/layout.tsx` redirects to `/login` if
-unauthenticated). Dashboard, bookings list/detail with a status timeline, quotations, invoices
-(auto-generated when a booking is confirmed), payments, documents, profile editing, and support.
-
-## What's Next (Phase 2)
-
-The `user_role` enum, `pricingSettings` table, and inventory-aware availability logic were built
-with the Admin Portal in mind:
-
-- Admin dashboard (KPIs, charts)
-- Booking calendar (day/week/month)
-- Inventory & equipment asset management (individual cabinet/asset tracking, maintenance)
-- Pricing configuration UI (writes to `pricingSettings`)
-- Quotation → booking conversion, PDF generation, email/WhatsApp send
-- Invoice & payment management, refunds
-- Operations checklist view (prepare/load/deliver/install/test/return)
-- Role-based permissions (roles already modeled: Super Admin, Sales, Operations, Technician,
-  Finance)
-- Reports (revenue, utilization, customer LTV) with PDF/Excel export
+Never merge or deploy the feature PR automatically. `main` and production remain untouched until the staging acceptance checklist is complete and a separate promotion is approved.

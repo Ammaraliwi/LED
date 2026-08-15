@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { auth } from "@/auth";
 import { db } from "@/db";
 import { bookings, bookingAddons, bookingDocuments, bookingStatusHistory, ledProducts, equipment as equipmentTable } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -9,13 +8,13 @@ import { BookingTimeline } from "@/components/portal/booking-timeline";
 import { BookingActions } from "@/components/portal/booking-actions";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { FileText, Image as ImageIcon } from "lucide-react";
+import { requireCustomer } from "@/lib/admin/authz";
 
 export const dynamic = "force-dynamic";
 
 export default async function BookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await auth();
-  const customerId = Number(session!.user!.customerId);
+  const { customerId } = await requireCustomer();
   const bookingId = Number(id);
 
   const [booking] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
@@ -121,7 +120,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
             {documents.map((doc) => (
               <a
                 key={doc.id}
-                href={doc.fileUrl}
+                href={doc.mediaAssetId ? `/api/media/${doc.mediaAssetId}/content` : doc.fileUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-2.5 rounded-xl border border-border p-3 hover:border-accent/40 transition-colors"

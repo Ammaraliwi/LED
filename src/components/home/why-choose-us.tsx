@@ -25,18 +25,22 @@ const points = [
   },
 ];
 
-export function WhyChooseUs() {
+export interface WhyContent { heading: string; intro: string; items: { title: string; description: string }[]; }
+
+export function WhyChooseUs({ content }: { content: WhyContent }) {
+  const visible = content.items.map((item, index) => ({ ...item, icon: points[index % points.length].icon }));
   return (
     <section className="py-24 sm:py-32">
       <Container>
         <SectionHeading
           eyebrow="Why Choose Us"
-          title="Built like a technology company, not a rental counter."
+          title={content.heading}
+          description={content.intro}
           align="center"
           className="mx-auto"
         />
         <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {points.map((p) => (
+          {visible.map((p) => (
             <div key={p.title} className="surface-card surface-card-hover rounded-2xl p-7">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent/15 ring-1 ring-accent/30">
                 <p.icon className="h-5 w-5 text-accent" />

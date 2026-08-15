@@ -87,42 +87,38 @@ export function BookingWizard({
   );
 
   const rentalDays = useMemo(() => daysBetween(state.installationDate, state.dismantlingDate), [state.installationDate, state.dismantlingDate]);
-
-  const isWeekend = useMemo(() => {
-    if (!state.eventDate) return false;
-    const d = new Date(state.eventDate).getDay();
-    return d === 5 || d === 6; // Fri/Sat weekend (Gulf region)
-  }, [state.eventDate]);
+  const quoteInputReady = Boolean(selectedProduct && state.eventDate && state.installationDate && state.dismantlingDate);
+  const visibleBreakdown = quoteInputReady ? breakdown : null;
 
   // ---- Live quote fetching (debounced) ----
   const quoteDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!selectedProduct) return;
-    // Sync a loading flag for the sidebar while the debounced quote request is in flight.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setQuoteLoading(true);
+    if (!selectedProduct || !state.eventDate || !state.installationDate || !state.dismantlingDate) {
+      return;
+    }
     if (quoteDebounce.current) clearTimeout(quoteDebounce.current);
     quoteDebounce.current = setTimeout(async () => {
+      setQuoteLoading(true);
       try {
         const res = await fetch("/api/quote", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            pricePerCabinetPerDay: Number(selectedProduct.pricePerCabinetPerDay),
-            totalCabinets: configResult.totalCabinets,
-            rentalDays,
+            ledProductId: selectedProduct.id,
+            widthM: configResult.widthM,
+            heightM: configResult.heightM,
+            eventDate: state.eventDate,
+            installationDate: state.installationDate,
+            dismantlingDate: state.dismantlingDate,
             includeInstallation: state.includeInstallation,
             includeDismantling: state.includeDismantling,
             includeTransport: state.includeTransport,
             includeProcessor: state.includeProcessor,
-            includeTechnician: state.includeTechnician,
             addons: state.addons,
-            isWeekend,
-            isCorporate: false,
           }),
         });
         const data = await res.json();
-        setBreakdown(data);
+        setBreakdown(res.ok ? data : null);
       } catch {
         // silent — sidebar shows skeleton
       } finally {
@@ -132,7 +128,7 @@ export function BookingWizard({
     return () => {
       if (quoteDebounce.current) clearTimeout(quoteDebounce.current);
     };
-  }, [selectedProduct, configResult.totalCabinets, rentalDays, state.includeInstallation, state.includeDismantling, state.includeTransport, state.includeProcessor, state.includeTechnician, state.addons, isWeekend]);
+  }, [selectedProduct, configResult.widthM, configResult.heightM, state.eventDate, state.installationDate, state.dismantlingDate, state.includeInstallation, state.includeDismantling, state.includeTransport, state.includeProcessor, state.addons]);
 
   // ---- Availability checking (debounced) ----
   const availDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -152,7 +148,8 @@ export function BookingWizard({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ledProductId: selectedProduct.id,
-            requiredCabinets: configResult.totalCabinets,
+            widthM: configResult.widthM,
+            heightM: configResult.heightM,
             installationDate: state.installationDate,
             dismantlingDate: state.dismantlingDate,
           }),
@@ -171,7 +168,7 @@ export function BookingWizard({
     return () => {
       if (availDebounce.current) clearTimeout(availDebounce.current);
     };
-  }, [selectedProduct, configResult.totalCabinets, state.installationDate, state.dismantlingDate]);
+  }, [selectedProduct, configResult.widthM, configResult.heightM, state.installationDate, state.dismantlingDate]);
 
   function goNext() {
     if (state.step === 1 && !state.ledProductId) {
@@ -219,14 +216,8 @@ export function BookingWizard({
         body: JSON.stringify({
           ledProductId: selectedProduct.id,
           packageId: state.packageId,
-          screenType: selectedProduct.screenType,
-          pixelPitch: Number(selectedProduct.pixelPitch),
           widthM: configResult.widthM,
           heightM: configResult.heightM,
-          totalCabinets: configResult.totalCabinets,
-          areaM2: configResult.areaM2,
-          aspectRatio: configResult.aspectRatio,
-          resolutionEstimate: configResult.resolutionEstimate,
 
           eventDate: state.eventDate,
           installationDate: state.installationDate,
@@ -235,7 +226,6 @@ export function BookingWizard({
           eventEndTime: state.eventEndTime,
           dismantlingDate: state.dismantlingDate,
           dismantlingTime: state.dismantlingTime,
-          rentalDays,
 
           eventName: state.eventName,
           eventType: state.eventType,
@@ -248,13 +238,10 @@ export function BookingWizard({
           includeDismantling: state.includeDismantling,
           includeTransport: state.includeTransport,
           includeProcessor: state.includeProcessor,
-          includeTechnician: state.includeTechnician,
 
           addons: state.addons,
-          documents: state.documents,
+          documents: state.documents.map((document) => ({ mediaAssetId: document.mediaAssetId, category: document.category })),
 
-          pricePerCabinetPerDay: Number(selectedProduct.pricePerCabinetPerDay),
-          isWeekend,
           action,
         }),
       });
@@ -302,7 +289,7 @@ export function BookingWizard({
               state={state}
               product={selectedProduct}
               equipment={equipmentList}
-              breakdown={breakdown}
+              breakdown={visibleBreakdown}
               rentalDays={rentalDays}
               totalCabinets={configResult.totalCabinets}
               widthM={configResult.widthM}
@@ -340,7 +327,7 @@ export function BookingWizard({
             heightM={configResult.heightM}
             totalCabinets={configResult.totalCabinets}
             rentalDays={rentalDays}
-            breakdown={breakdown}
+            breakdown={visibleBreakdown}
             loading={quoteLoading}
           />
         </div>
@@ -353,7 +340,7 @@ export function BookingWizard({
             heightM={configResult.heightM}
             totalCabinets={configResult.totalCabinets}
             rentalDays={rentalDays}
-            breakdown={breakdown}
+            breakdown={visibleBreakdown}
             loading={quoteLoading}
           />
         </div>

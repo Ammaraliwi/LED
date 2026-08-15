@@ -3,7 +3,8 @@ import { z } from "zod";
 import { db } from "@/db";
 import { customers } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { auth } from "@/auth";
+import { requireCustomer } from "@/lib/admin/authz";
+import { assertSameOrigin } from "@/lib/security/request";
 
 const patchSchema = z.object({
   fullName: z.string().min(2),
@@ -18,13 +19,9 @@ const patchSchema = z.object({
 });
 
 export async function PATCH(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.customerId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const customerId = Number(session.user.customerId);
-
   try {
+    assertSameOrigin(req);
+    const { customerId } = await requireCustomer();
     const body = patchSchema.parse(await req.json());
     const [updated] = await db
       .update(customers)
@@ -36,6 +33,7 @@ export async function PATCH(req: NextRequest) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.issues[0]?.message ?? "Invalid input" }, { status: 400 });
     }
-    return NextResponse.json({ error: "Update failed" }, { status: 500 });
+    const status = err instanceof Error && (err.name === "AuthenticationError" || err.name === "AuthorizationError") ? 403 : 500;
+    return NextResponse.json({ error: "Update failed" }, { status });
   }
 }

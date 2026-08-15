@@ -12,17 +12,20 @@ const solutions = [
   { icon: PartyPopper, title: "Festivals & Outdoor", description: "High-brightness, weatherproof screens engineered for scale." },
 ];
 
-export function SolutionsSection() {
+export interface ServicesContent { heading: string; intro: string; items: { title: string; description: string }[]; }
+
+export function SolutionsSection({ content }: { content: ServicesContent }) {
+  const visible = content.items.map((item, index) => ({ ...item, icon: solutions[index % solutions.length].icon }));
   return (
     <section className="py-24 sm:py-32 bg-surface/30">
       <Container>
         <SectionHeading
           eyebrow="Event Solutions"
-          title="One platform, every kind of stage."
-          description="Whatever the format, our screens, structures and crews adapt to the event — not the other way around."
+          title={content.heading}
+          description={content.intro}
         />
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {solutions.map((s) => (
+          {visible.map((s) => (
             <Link
               key={s.title}
               href="/solutions"

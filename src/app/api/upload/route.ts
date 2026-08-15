@@ -1,47 +1,85 @@
-import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
-import crypto from "crypto";
+import { createHash, randomUUID } from "node:crypto";
+import path from "node:path";
+import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
+import { auth } from "@/auth";
+import { db } from "@/db";
+import { mediaAssets } from "@/db/schema";
+import { requireAdmin, requireCustomer } from "@/lib/admin/authz";
+import { errorResponse, ValidationError } from "@/lib/admin/errors";
+import { isStaffRole } from "@/lib/admin/permissions";
+import { assertSameOrigin, clientAddress } from "@/lib/security/request";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { bucketForVisibility, generateObjectKey, putObject } from "@/lib/storage/s3";
+import {
+  imageDimensions,
+  MAX_PRIVATE_MEDIA_BYTES,
+  MAX_PUBLIC_MEDIA_BYTES,
+  validateMediaBytes,
+} from "@/lib/storage/validation";
 
-// Local filesystem storage abstraction. In production this would be swapped
-// for an S3-compatible object storage client (see README) without changing
-// the calling code — only this route needs to change.
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
+  let mediaId: number | null = null;
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    assertSameOrigin(request);
+    const session = await auth();
+    const role = session?.user?.role;
+    let userId: number;
+    let requestedVisibility: "public" | "private" = "private";
+    if (isStaffRole(role)) {
+      const actor = await requireAdmin("media.write");
+      userId = actor.id;
+    } else {
+      const customer = await requireCustomer();
+      userId = customer.userId;
     }
 
-    const maxSize = 15 * 1024 * 1024; // 15MB
-    if (file.size > maxSize) {
-      return NextResponse.json({ error: "File exceeds 15MB limit" }, { status: 400 });
-    }
+    const limit = await consumeRateLimit("upload", `${clientAddress(request)}:${userId}`);
+    if (!limit.allowed) return NextResponse.json({ error: "Upload rate limit exceeded" }, { status: 429 });
 
-    const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"];
-    if (!allowed.includes(file.type)) {
-      return NextResponse.json({ error: "Unsupported file type" }, { status: 400 });
-    }
+    const formData = await request.formData();
+    const file = formData.get("file");
+    if (!(file instanceof File)) throw new ValidationError("No file provided");
+    if (isStaffRole(role) && formData.get("visibility") === "public") requestedVisibility = "public";
+    const maxBytes = requestedVisibility === "public" ? MAX_PUBLIC_MEDIA_BYTES : MAX_PRIVATE_MEDIA_BYTES;
+    if (file.size <= 0 || file.size > maxBytes) throw new ValidationError(`File exceeds the ${Math.floor(maxBytes / 1024 / 1024)}MB limit`);
 
-    const uploadDir = path.join(process.cwd(), "public", "uploads");
-    await mkdir(uploadDir, { recursive: true });
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    validateMediaBytes(bytes, file.type, requestedVisibility);
+    const dimensions = imageDimensions(bytes, file.type);
+    const bucket = bucketForVisibility(requestedVisibility);
+    const objectKey = generateObjectKey(requestedVisibility, file.type, randomUUID());
+    const originalName = path.basename(file.name).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 255) || "upload";
+    const checksumSha256 = createHash("sha256").update(bytes).digest("hex");
 
-    const ext = path.extname(file.name) || "";
-    const safeName = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`;
-    const filePath = path.join(uploadDir, safeName);
+    const [asset] = await db.insert(mediaAssets).values({
+      bucket,
+      objectKey,
+      originalName,
+      mimeType: file.type,
+      sizeBytes: file.size,
+      checksumSha256,
+      widthPx: dimensions?.width ?? null,
+      heightPx: dimensions?.height ?? null,
+      visibility: requestedVisibility,
+      status: "pending",
+      uploadedByUserId: userId,
+    }).returning();
+    mediaId = asset.id;
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(filePath, buffer);
-
+    await putObject(bucket, objectKey, bytes, file.type);
+    await db.update(mediaAssets).set({ status: "ready" }).where(eq(mediaAssets.id, asset.id));
     return NextResponse.json({
       success: true,
-      fileUrl: `/uploads/${safeName}`,
-      fileName: file.name,
+      mediaAssetId: asset.id,
+      fileUrl: `/api/media/${asset.id}/content`,
+      fileName: originalName,
       fileType: file.type,
     });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+  } catch (error) {
+    if (mediaId) {
+      await db.update(mediaAssets).set({ status: "quarantined" }).where(eq(mediaAssets.id, mediaId)).catch(() => undefined);
+    }
+    return errorResponse(error);
   }
 }

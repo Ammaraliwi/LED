@@ -21,6 +21,7 @@ export interface AddonSelection {
 }
 
 export interface UploadedDocument {
+  mediaAssetId: number;
   fileName: string;
   fileUrl: string;
   fileType?: string;
