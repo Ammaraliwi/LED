@@ -4,12 +4,12 @@ import { Minus, Plus } from "lucide-react";
 import type { Equipment, WizardState } from "@/lib/wizard-types";
 import { cn, formatCurrency } from "@/lib/utils";
 
-const coreServices: { key: keyof Pick<WizardState, "includeInstallation" | "includeDismantling" | "includeTransport" | "includeProcessor" | "includeTechnician">; label: string; description: string }[] = [
+const coreServices: { key: keyof Pick<WizardState, "includeInstallation" | "includeDismantling" | "includeTransport" | "includeProcessor" | "includeTechnician">; label: string; description: string; required?: boolean }[] = [
   { key: "includeInstallation", label: "Professional Installation", description: "Certified crew handles full rig and setup." },
   { key: "includeDismantling", label: "Dismantling", description: "Post-event strike and equipment collection." },
   { key: "includeTransport", label: "Transportation", description: "Delivery to and from your venue." },
   { key: "includeProcessor", label: "LED Processor", description: "Signal processing hardware for your content." },
-  { key: "includeTechnician", label: "Technical Operator", description: "On-site technician throughout your event." },
+  { key: "includeTechnician", label: "Technical Operator", description: "Mandatory on-site technician throughout your event.", required: true },
 ];
 
 export function StepServices({
@@ -47,25 +47,30 @@ export function StepServices({
     <div className="space-y-10">
       <div>
         <h2 className="font-display text-2xl font-semibold text-foreground">Core Services</h2>
-        <p className="mt-1.5 text-sm text-muted">Included by default — toggle off anything you&apos;re arranging yourself.</p>
+        <p className="mt-1.5 text-sm text-muted">Included by default. The technical operator is mandatory for every rental.</p>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           {coreServices.map((s) => (
             <button
               key={s.key}
               onClick={() => toggleService(s.key)}
+              disabled={s.required}
+              aria-pressed={s.required || state[s.key]}
               className={cn(
-                "flex items-start justify-between gap-4 rounded-2xl border p-5 text-left transition-all",
-                state[s.key] ? "border-accent bg-accent/10" : "border-border hover:border-white/25"
+                "flex items-start justify-between gap-4 rounded-2xl border p-5 text-left transition-all disabled:cursor-default",
+                s.required || state[s.key] ? "border-accent bg-accent/10" : "border-border hover:border-white/25"
               )}
             >
               <div>
-                <div className="text-sm font-medium text-foreground">{s.label}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {s.label}
+                  {s.required && <span className="ml-2 text-xs text-accent">Required</span>}
+                </div>
                 <div className="mt-1 text-xs text-muted">{s.description}</div>
               </div>
               <div
                 className={cn(
                   "mt-0.5 flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors",
-                  state[s.key] ? "bg-accent justify-end" : "bg-surface-2 justify-start"
+                  s.required || state[s.key] ? "bg-accent justify-end" : "bg-surface-2 justify-start"
                 )}
               >
                 <div className="h-5 w-5 rounded-full bg-white" />

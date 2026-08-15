@@ -8,11 +8,13 @@
     "start": "next start --hostname 0.0.0.0",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
+    "test": "tsx --test src/lib/pricing.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:seed": "tsx src/db/seed.ts"
+    "db:seed": "tsx src/db/seed.ts",
+    "db:update-pricing": "tsx src/db/update-pricing.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.8.0",
