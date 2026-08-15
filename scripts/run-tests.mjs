@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 
 function run(file) {
-  const result = spawnSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", "--conditions=react-server", "--test", file], { stdio: "inherit", env: process.env });
+  const result = spawnSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", "--tsconfig", "tsconfig.integration.json", "--conditions=react-server", "--test", file], { stdio: "inherit", env: process.env });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
