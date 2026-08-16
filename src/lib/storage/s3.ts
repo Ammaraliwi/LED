@@ -25,33 +25,25 @@ function validBucketName(value: string): boolean {
 }
 
 export function resolveStorageConfig(env: NodeJS.ProcessEnv = process.env): StorageConfig {
-  const endpoint = env.AWS_ENDPOINT_URL || env.STORAGE_ENDPOINT;
-  const accessKeyId = env.AWS_ACCESS_KEY_ID || env.STORAGE_ACCESS_KEY_ID;
-  const secretAccessKey = env.AWS_SECRET_ACCESS_KEY || env.STORAGE_SECRET_ACCESS_KEY;
-  const sharedBucket = env.AWS_S3_BUCKET_NAME;
-  const publicBucket = sharedBucket || env.STORAGE_PUBLIC_BUCKET;
-  const privateBucket = sharedBucket || env.STORAGE_PRIVATE_BUCKET;
-  if (!endpoint || !accessKeyId || !secretAccessKey || !publicBucket || !privateBucket) {
-    throw new Error("Storage is not configured. Set the Railway AWS endpoint, bucket, region, and credentials.");
-  }
-  const endpointUrl = new URL(required(endpoint, "AWS_ENDPOINT_URL"));
+  const endpointUrl = new URL(required(env.AWS_ENDPOINT_URL, "AWS_ENDPOINT_URL"));
+  const bucket = required(env.AWS_S3_BUCKET_NAME, "AWS_S3_BUCKET_NAME");
   if (endpointUrl.protocol !== "https:" && endpointUrl.hostname !== "localhost" && endpointUrl.hostname !== "127.0.0.1") {
     throw new Error("Object storage endpoint must use HTTPS.");
   }
-  if (!validBucketName(publicBucket) || !validBucketName(privateBucket)) throw new Error("Object storage bucket name is invalid.");
+  if (!validBucketName(bucket)) throw new Error("Object storage bucket name is invalid.");
   const urlStyle = env.AWS_S3_URL_STYLE?.toLowerCase();
   if (urlStyle && urlStyle !== "virtual" && urlStyle !== "path") throw new Error("AWS_S3_URL_STYLE must be virtual or path.");
   return {
     endpoint: endpointUrl,
-    region: env.AWS_DEFAULT_REGION || env.STORAGE_REGION || "auto",
-    accessKeyId,
-    secretAccessKey,
-    sessionToken: env.AWS_SESSION_TOKEN || env.STORAGE_SESSION_TOKEN,
-    publicBucket,
-    privateBucket,
+    region: required(env.AWS_DEFAULT_REGION, "AWS_DEFAULT_REGION"),
+    accessKeyId: required(env.AWS_ACCESS_KEY_ID, "AWS_ACCESS_KEY_ID"),
+    secretAccessKey: required(env.AWS_SECRET_ACCESS_KEY, "AWS_SECRET_ACCESS_KEY"),
+    sessionToken: env.AWS_SESSION_TOKEN,
+    publicBucket: bucket,
+    privateBucket: bucket,
     // Current Railway buckets are virtual-hosted by default. Older buckets can
     // explicitly opt into path style with AWS_S3_URL_STYLE=path.
-    forcePathStyle: urlStyle ? urlStyle === "path" : env.STORAGE_FORCE_PATH_STYLE === "true",
+    forcePathStyle: urlStyle === "path",
   };
 }
 

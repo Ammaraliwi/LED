@@ -114,7 +114,7 @@ Never commit values. Use distinct secrets and buckets for staging and production
 | `RATE_LIMIT_SALT` | Recommended | Separate high-entropy salt; falls back to `AUTH_SECRET` |
 | `APP_URL` | Yes | Exact public origin, for example `https://staging.example.com` |
 | `MFA_ENCRYPTION_KEY` | Yes for staff MFA | Base64-encoded 32-byte key; loss prevents TOTP-secret decryption |
-| `AWS_ENDPOINT_URL` | Yes for uploads | Railway S3 endpoint, normally `https://storage.railway.app` |
+| `AWS_ENDPOINT_URL` | Yes for uploads | Exact endpoint injected by the Railway bucket reference |
 | `AWS_S3_BUCKET_NAME` | Yes for uploads | Globally unique bucket name injected by Railway |
 | `AWS_DEFAULT_REGION` | Yes | Railway region value, normally `auto` |
 | `AWS_ACCESS_KEY_ID` | Yes for uploads | Private Railway bucket access-key ID |
