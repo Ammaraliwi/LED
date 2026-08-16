@@ -5,6 +5,7 @@ import {
   adminInvites,
   auditLogs,
   bookingAssignments,
+  bookingDocuments,
   bookingNotes,
   bookings,
   bookingStatusHistory,
@@ -39,6 +40,7 @@ import { sendNotification } from "@/lib/notifications";
 import { assertSameOrigin, clientAddress, randomToken, sha256 } from "@/lib/security/request";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { generateInvoiceNumber } from "@/lib/settings";
+import { deleteObject } from "@/lib/storage/s3";
 
 function permissionFor(action: AdminAction["action"]): Permission {
   if (action.startsWith("product.")) return "products.write";
@@ -83,6 +85,35 @@ async function requirePublicMedia(mediaAssetId: number | null | undefined) {
     throw new ValidationError("A ready public image is required");
   }
   return asset;
+}
+
+async function archiveMediaAsset(id: number, actor: AdminActor, metadata: Record<string, unknown>) {
+  const before = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(918281, ${id})`);
+    const [asset] = await tx.select().from(mediaAssets).where(eq(mediaAssets.id, id)).limit(1);
+    if (!asset) throw new ValidationError("Media asset not found");
+    if (asset.status === "deleted") return asset;
+    const [{ productReferences }] = await tx.select({ productReferences: count() }).from(ledProducts).where(eq(ledProducts.mediaAssetId, id));
+    const [{ projectReferences }] = await tx.select({ projectReferences: count() }).from(projects).where(eq(projects.mediaAssetId, id));
+    const [{ documentReferences }] = await tx.select({ documentReferences: count() }).from(bookingDocuments).where(eq(bookingDocuments.mediaAssetId, id));
+    const referenceCount = productReferences + projectReferences + documentReferences;
+    if (referenceCount > 0) throw new ConflictError(`This asset is still referenced by ${referenceCount} record(s). Replace those references before deleting it.`);
+    await tx.update(mediaAssets).set({ status: "quarantined" }).where(eq(mediaAssets.id, id));
+    return asset;
+  });
+  if (before.status === "deleted") return { asset: before };
+  try {
+    await deleteObject(before.bucket, before.objectKey);
+  } catch {
+    await db.insert(auditLogs).values(auditValues({ actor, action: "media.deletion_failed", entityType: "media_asset", entityId: before.id, before, after: { status: "quarantined" }, metadata }));
+    throw new ConflictError("The object could not be deleted from storage and remains quarantined. Retry after checking the bucket connection.");
+  }
+  return db.transaction(async (tx) => {
+    const [asset] = await tx.update(mediaAssets).set({ status: "deleted", deletedAt: new Date() }).where(and(eq(mediaAssets.id, id), eq(mediaAssets.status, "quarantined"))).returning();
+    if (!asset) throw new ConflictError("Media deletion state changed; refresh and try again.");
+    await tx.insert(auditLogs).values(auditValues({ actor, action: "media.deleted", entityType: "media_asset", entityId: asset.id, before, after: asset, metadata }));
+    return { asset };
+  });
 }
 
 async function peakCommittedInventory(executor: { execute: typeof db.execute }, productId: number): Promise<number> {
@@ -133,12 +164,17 @@ async function handleProduct(action: Extract<AdminAction, { action: `product.${s
     const peak = await peakCommittedInventory(tx, before.id);
     if (action.data.totalCabinets < peak) throw new ConflictError(`Inventory cannot be lower than the committed peak of ${peak} cabinets`);
     let imageUrl = before.imageUrl;
+    let mediaAssetId = before.mediaAssetId;
     if (action.data.mediaAssetId) {
       const [asset] = await tx.select().from(mediaAssets).where(eq(mediaAssets.id, action.data.mediaAssetId)).limit(1);
       if (!asset || asset.status !== "ready" || asset.visibility !== "public" || !asset.mimeType.startsWith("image/")) throw new ValidationError("A ready public image is required");
       imageUrl = `/api/media/${asset.id}/content`;
+      mediaAssetId = asset.id;
+    } else if (action.data.mediaAssetId === null) {
+      imageUrl = null;
+      mediaAssetId = null;
     }
-    const [product] = await tx.update(ledProducts).set({ ...action.data, pixelPitch: String(action.data.pixelPitch), pricePerCabinetPerDay: String(action.data.pricePerCabinetPerDay), imageUrl, archivedAt: action.data.isActive ? null : before.archivedAt ?? new Date(), updatedAt: new Date(), updatedByUserId: actor.id }).where(eq(ledProducts.id, action.id)).returning();
+    const [product] = await tx.update(ledProducts).set({ ...action.data, mediaAssetId, pixelPitch: String(action.data.pixelPitch), pricePerCabinetPerDay: String(action.data.pricePerCabinetPerDay), imageUrl, archivedAt: action.data.isActive ? null : before.archivedAt ?? new Date(), updatedAt: new Date(), updatedByUserId: actor.id }).where(eq(ledProducts.id, action.id)).returning();
     await tx.insert(auditLogs).values(auditValues({ actor, action: "product.updated", entityType: "led_product", entityId: product.id, before, after: product, metadata }));
     return { product };
   });
@@ -392,12 +428,8 @@ export async function POST(request: Request) {
     else if (action.action === "payment.refund") result = await refundPayment({ actorUserId: actor.id, paymentId: action.paymentId, amount: action.amount, notes: action.notes, metadata });
     else if (action.action.startsWith("invoice.")) result = await handleInvoice(action as Extract<AdminAction, { action: `invoice.${string}` }>, actor, metadata);
     else if (action.action.startsWith("content.")) result = await handleContent(action as Extract<AdminAction, { action: `content.${string}` }>, actor, metadata);
-    else if (action.action === "media.archive") {
-      const [before] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, action.id)).limit(1);
-      if (!before) throw new ValidationError("Media asset not found");
-      const [asset] = await db.update(mediaAssets).set({ status: "deleted", deletedAt: new Date() }).where(eq(mediaAssets.id, action.id)).returning();
-      await db.insert(auditLogs).values(auditValues({ actor, action: "media.archived", entityType: "media_asset", entityId: asset.id, before, after: asset, metadata })); result = { asset };
-    } else if (action.action.startsWith("staff.")) result = await handleStaff(action as Extract<AdminAction, { action: `staff.${string}` }>, actor, metadata);
+    else if (action.action === "media.archive") result = await archiveMediaAsset(action.id, actor, metadata);
+    else if (action.action.startsWith("staff.")) result = await handleStaff(action as Extract<AdminAction, { action: `staff.${string}` }>, actor, metadata);
     else if (action.action === "setting.update") {
       const value = parseSiteSetting(action.key, action.value);
       const definition = SITE_SETTING_DEFINITIONS[action.key as keyof typeof SITE_SETTING_DEFINITIONS];

@@ -10,16 +10,17 @@ import { errorResponse, ValidationError } from "@/lib/admin/errors";
 import { isStaffRole } from "@/lib/admin/permissions";
 import { assertSameOrigin, clientAddress } from "@/lib/security/request";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
-import { bucketForVisibility, generateObjectKey, putObject } from "@/lib/storage/s3";
+import { bucketForVisibility, deleteObject, generateObjectKey, putObject } from "@/lib/storage/s3";
 import {
-  imageDimensions,
   MAX_PRIVATE_MEDIA_BYTES,
   MAX_PUBLIC_MEDIA_BYTES,
+  validatedImageDimensions,
   validateMediaBytes,
 } from "@/lib/storage/validation";
 
 export async function POST(request: Request) {
   let mediaId: number | null = null;
+  let uploadedObject: { bucket: string; objectKey: string } | null = null;
   try {
     assertSameOrigin(request);
     const session = await auth();
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     validateMediaBytes(bytes, file.type, requestedVisibility);
-    const dimensions = imageDimensions(bytes, file.type);
+    const dimensions = validatedImageDimensions(bytes, file.type);
     const bucket = bucketForVisibility(requestedVisibility);
     const objectKey = generateObjectKey(requestedVisibility, file.type, randomUUID());
     const originalName = path.basename(file.name).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 255) || "upload";
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
     mediaId = asset.id;
 
     await putObject(bucket, objectKey, bytes, file.type);
+    uploadedObject = { bucket, objectKey };
     await db.update(mediaAssets).set({ status: "ready" }).where(eq(mediaAssets.id, asset.id));
     return NextResponse.json({
       success: true,
@@ -77,6 +79,9 @@ export async function POST(request: Request) {
       fileType: file.type,
     });
   } catch (error) {
+    if (uploadedObject) {
+      await deleteObject(uploadedObject.bucket, uploadedObject.objectKey).catch(() => undefined);
+    }
     if (mediaId) {
       await db.update(mediaAssets).set({ status: "quarantined" }).where(eq(mediaAssets.id, mediaId)).catch(() => undefined);
     }

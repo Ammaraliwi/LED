@@ -36,12 +36,30 @@ export function imageDimensions(bytes: Uint8Array, mimeType: string): { width: n
   if (mimeType === "image/png" && bytes.length >= 24) {
     return { width: view.getUint32(16), height: view.getUint32(20) };
   }
-  if (mimeType === "image/webp" && bytes.length >= 30) {
+  if (mimeType === "image/webp" && bytes.length >= 16) {
     const format = String.fromCharCode(...bytes.slice(12, 16));
-    if (format === "VP8X") {
+    if (format === "VP8X" && bytes.length >= 30) {
       const width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
       const height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
       return { width, height };
+    }
+    if (
+      format === "VP8 " &&
+      bytes.length >= 30 &&
+      bytes[23] === 0x9d &&
+      bytes[24] === 0x01 &&
+      bytes[25] === 0x2a
+    ) {
+      return {
+        width: view.getUint16(26, true) & 0x3fff,
+        height: view.getUint16(28, true) & 0x3fff,
+      };
+    }
+    if (format === "VP8L" && bytes.length >= 25 && bytes[20] === 0x2f) {
+      return {
+        width: 1 + bytes[21] + ((bytes[22] & 0x3f) << 8),
+        height: 1 + ((bytes[22] & 0xc0) >> 6) + (bytes[23] << 2) + ((bytes[24] & 0x0f) << 10),
+      };
     }
   }
   if (mimeType === "image/jpeg") {
@@ -58,4 +76,18 @@ export function imageDimensions(bytes: Uint8Array, mimeType: string): { width: n
     }
   }
   return null;
+}
+
+export function validatedImageDimensions(bytes: Uint8Array, mimeType: string): { width: number; height: number } | null {
+  if (!mimeType.startsWith("image/")) return null;
+  const dimensions = imageDimensions(bytes, mimeType);
+  if (
+    !dimensions ||
+    dimensions.width < 1 ||
+    dimensions.height < 1 ||
+    dimensions.width > 16_384 ||
+    dimensions.height > 16_384 ||
+    dimensions.width * dimensions.height > 50_000_000
+  ) throw new Error("Image dimensions are missing or exceed the supported limit");
+  return dimensions;
 }

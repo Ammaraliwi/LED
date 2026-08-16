@@ -71,16 +71,16 @@ Payments are an append-only ledger. Refunds are negative records linked to the o
 
 ## Media and storage
 
-`public/uploads` is no longer used for persistent uploads. The application stores generated object keys in PostgreSQL and creates short-lived SigV4 URLs for an S3-compatible service such as Railway Storage Buckets.
+`public/uploads` is not used for runtime uploads. The application uses the private Railway S3-compatible bucket exposed through the standard `AWS_*` variables, stores generated object keys in PostgreSQL, and creates short-lived SigV4 URLs.
 
 - Public classification: JPEG, PNG and WebP, 10 MB maximum.
 - Private classification: JPEG, PNG, WebP and PDF, 15 MB maximum.
 - Uploads are checked by magic bytes; images are dimension-inspected and suspicious active/embedded PDF markers are rejected.
-- Public website assets and private booking documents use separate buckets.
+- Public website assets and private booking documents share the environment-isolated Railway bucket but use separate `public/` and `private/` object-key prefixes plus database visibility metadata.
 - Private downloads require a current staff permission, upload ownership, or a booking owned by the current customer.
-- Pending, quarantined and soft-deleted media records plus `deletedAt` support a controlled orphan-cleanup job. Object deletion is intentionally not automatic because references and recovery must be reviewed first.
+- Invalid uploads are quarantined and removed from object storage. Admin deletion is refused while a product, project, or booking document still references the asset; an unreferenced asset is quarantined before its object is deleted and its metadata is retained as a deleted audit record.
 
-Configure bucket CORS to allow `PUT` from the exact staging/production application origins. Keep both buckets non-listable; the application can serve public-classified assets through signed URLs even when the bucket itself is private.
+Configure bucket CORS to allow `PUT` from the exact staging application origin. Keep the bucket private and non-listable; public-classified assets are still served through short-lived signed URLs and private assets require application authorization first. Current Railway buckets use virtual-host style automatically; an older bucket can explicitly set `AWS_S3_URL_STYLE=path` if its Credentials tab requires path style.
 
 ## MFA and account recovery
 
@@ -114,14 +114,11 @@ Never commit values. Use distinct secrets and buckets for staging and production
 | `RATE_LIMIT_SALT` | Recommended | Separate high-entropy salt; falls back to `AUTH_SECRET` |
 | `APP_URL` | Yes | Exact public origin, for example `https://staging.example.com` |
 | `MFA_ENCRYPTION_KEY` | Yes for staff MFA | Base64-encoded 32-byte key; loss prevents TOTP-secret decryption |
-| `STORAGE_ENDPOINT` | Yes for uploads | HTTPS S3-compatible endpoint |
-| `STORAGE_REGION` | Yes | Provider region, or `auto` when supported |
-| `STORAGE_ACCESS_KEY_ID` | Yes for uploads | Private server credential |
-| `STORAGE_SECRET_ACCESS_KEY` | Yes for uploads | Private server credential |
-| `STORAGE_SESSION_TOKEN` | Optional | Temporary credential token when supplied by provider |
-| `STORAGE_PUBLIC_BUCKET` | Yes for uploads | Bucket for public-classified media |
-| `STORAGE_PRIVATE_BUCKET` | Yes for uploads | Bucket for private documents |
-| `STORAGE_FORCE_PATH_STYLE` | Yes | `true` for path-style endpoints; `false` for virtual-host style |
+| `AWS_ENDPOINT_URL` | Yes for uploads | Railway S3 endpoint, normally `https://storage.railway.app` |
+| `AWS_S3_BUCKET_NAME` | Yes for uploads | Globally unique bucket name injected by Railway |
+| `AWS_DEFAULT_REGION` | Yes | Railway region value, normally `auto` |
+| `AWS_ACCESS_KEY_ID` | Yes for uploads | Private Railway bucket access-key ID |
+| `AWS_SECRET_ACCESS_KEY` | Yes for uploads | Private Railway bucket secret; never exposed to the browser or logs |
 | `NOTIFICATIONS_WEBHOOK_URL` | Optional | HTTPS email/notification adapter endpoint |
 | `NOTIFICATIONS_WEBHOOK_TOKEN` | Optional | Bearer secret for the notification adapter |
 | `ADMIN_BOOTSTRAP_TOKEN` | Bootstrap only | Remove immediately after first Admin creation |
@@ -172,10 +169,10 @@ The feature branch must first be reviewed and merged into `staging`; this reposi
 
 Manual staging configuration:
 
-1. Use a staging-only Railway application service, PostgreSQL service and two staging-only storage buckets.
+1. Use a staging-only Railway application service, PostgreSQL service and persistent staging-only Railway bucket.
 2. Connect the application service to branch `staging`, never `feature/admin-portal` for production.
 3. Set the environment variables above with staging-only values.
-4. Configure bucket CORS for the exact staging origin and methods `PUT`, `GET`, `HEAD`.
+4. Configure bucket CORS for the exact staging origin and direct-upload method `PUT` (with `content-type` allowed). Signed `GET` and `HEAD` requests are generated server-side.
 5. Set build command to `npm ci && npm run build`.
 6. Set start command to `npm start`.
 7. Set health check to `/api/health`.

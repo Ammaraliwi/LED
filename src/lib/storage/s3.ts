@@ -15,24 +15,43 @@ interface StorageConfig {
   forcePathStyle: boolean;
 }
 
-function config(): StorageConfig {
-  const endpoint = process.env.STORAGE_ENDPOINT;
-  const accessKeyId = process.env.STORAGE_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.STORAGE_SECRET_ACCESS_KEY;
-  const publicBucket = process.env.STORAGE_PUBLIC_BUCKET;
-  const privateBucket = process.env.STORAGE_PRIVATE_BUCKET;
+function required(value: string | undefined, name: string): string {
+  if (!value) throw new Error(`Storage is not configured. Missing ${name}.`);
+  return value;
+}
+
+function validBucketName(value: string): boolean {
+  return /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(value) && !value.includes("..") && !/^\d+\.\d+\.\d+\.\d+$/.test(value);
+}
+
+export function resolveStorageConfig(env: NodeJS.ProcessEnv = process.env): StorageConfig {
+  const endpoint = env.AWS_ENDPOINT_URL || env.STORAGE_ENDPOINT;
+  const accessKeyId = env.AWS_ACCESS_KEY_ID || env.STORAGE_ACCESS_KEY_ID;
+  const secretAccessKey = env.AWS_SECRET_ACCESS_KEY || env.STORAGE_SECRET_ACCESS_KEY;
+  const sharedBucket = env.AWS_S3_BUCKET_NAME;
+  const publicBucket = sharedBucket || env.STORAGE_PUBLIC_BUCKET;
+  const privateBucket = sharedBucket || env.STORAGE_PRIVATE_BUCKET;
   if (!endpoint || !accessKeyId || !secretAccessKey || !publicBucket || !privateBucket) {
-    throw new Error("Storage is not configured. Set STORAGE_ENDPOINT, credentials, and both bucket names.");
+    throw new Error("Storage is not configured. Set the Railway AWS endpoint, bucket, region, and credentials.");
   }
+  const endpointUrl = new URL(required(endpoint, "AWS_ENDPOINT_URL"));
+  if (endpointUrl.protocol !== "https:" && endpointUrl.hostname !== "localhost" && endpointUrl.hostname !== "127.0.0.1") {
+    throw new Error("Object storage endpoint must use HTTPS.");
+  }
+  if (!validBucketName(publicBucket) || !validBucketName(privateBucket)) throw new Error("Object storage bucket name is invalid.");
+  const urlStyle = env.AWS_S3_URL_STYLE?.toLowerCase();
+  if (urlStyle && urlStyle !== "virtual" && urlStyle !== "path") throw new Error("AWS_S3_URL_STYLE must be virtual or path.");
   return {
-    endpoint: new URL(endpoint),
-    region: process.env.STORAGE_REGION || "auto",
+    endpoint: endpointUrl,
+    region: env.AWS_DEFAULT_REGION || env.STORAGE_REGION || "auto",
     accessKeyId,
     secretAccessKey,
-    sessionToken: process.env.STORAGE_SESSION_TOKEN,
+    sessionToken: env.AWS_SESSION_TOKEN || env.STORAGE_SESSION_TOKEN,
     publicBucket,
     privateBucket,
-    forcePathStyle: process.env.STORAGE_FORCE_PATH_STYLE !== "false",
+    // Current Railway buckets are virtual-hosted by default. Older buckets can
+    // explicitly opt into path style with AWS_S3_URL_STYLE=path.
+    forcePathStyle: urlStyle ? urlStyle === "path" : env.STORAGE_FORCE_PATH_STYLE === "true",
   };
 }
 
@@ -66,13 +85,32 @@ function objectUrl(bucket: string, objectKey: string, cfg: StorageConfig): URL {
   return url;
 }
 
-export function bucketForVisibility(visibility: StorageVisibility): string {
-  const cfg = config();
+function assertSafeObjectKey(objectKey: string): void {
+  if (
+    objectKey.length < 1 ||
+    objectKey.length > 1024 ||
+    objectKey.startsWith("/") ||
+    objectKey.includes("\\") ||
+    objectKey.includes("..") ||
+    objectKey.includes("//") ||
+    !/^[A-Za-z0-9][A-Za-z0-9/_\-.]*$/.test(objectKey)
+  ) throw new Error("Object key is invalid.");
+}
+
+export function bucketForVisibility(visibility: StorageVisibility, env: NodeJS.ProcessEnv = process.env): string {
+  const cfg = resolveStorageConfig(env);
   return visibility === "public" ? cfg.publicBucket : cfg.privateBucket;
 }
 
 export function generateObjectKey(visibility: StorageVisibility, mimeType: string, id: string): string {
-  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "pdf";
+  const extensions: Readonly<Record<string, string>> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "application/pdf": "pdf",
+  };
+  const extension = extensions[mimeType];
+  if (!extension || !/^[a-f0-9-]{16,64}$/i.test(id)) throw new Error("Cannot generate an object key for this file.");
   const prefix = visibility === "public" ? "public" : "private";
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "/");
   return `${prefix}/${date}/${id}.${extension}`;
@@ -83,8 +121,10 @@ export function presignObject(options: {
   objectKey: string;
   method: "GET" | "PUT" | "HEAD" | "DELETE";
   expiresSeconds?: number;
-}): string {
-  const cfg = config();
+}, env: NodeJS.ProcessEnv = process.env): string {
+  const cfg = resolveStorageConfig(env);
+  assertSafeObjectKey(options.objectKey);
+  if (!Number.isInteger(options.expiresSeconds ?? 300) || (options.expiresSeconds ?? 300) < 1) throw new Error("Signed URL expiry is invalid.");
   const now = new Date();
   const { full, short } = amzDate(now);
   const service = "s3";
@@ -137,4 +177,9 @@ export async function inspectObject(bucket: string, objectKey: string): Promise<
   const object = await fetch(presignObject({ bucket, objectKey, method: "GET", expiresSeconds: 120 }));
   if (!object.ok) throw new Error(`Object storage signature check failed (${object.status})`);
   return { size, contentType, bytes: new Uint8Array(await object.arrayBuffer()) };
+}
+
+export async function deleteObject(bucket: string, objectKey: string): Promise<void> {
+  const response = await fetch(presignObject({ bucket, objectKey, method: "DELETE", expiresSeconds: 120 }), { method: "DELETE" });
+  if (!response.ok) throw new Error(`Object storage deletion failed (${response.status})`);
 }

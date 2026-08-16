@@ -6,3 +6,4 @@ import "./lib/booking/status-transitions.test";
 import "./lib/security/mfa.test";
 import "./lib/cms/schemas.test";
 import "./lib/storage/validation.test";
+import "./lib/storage/s3.test";
