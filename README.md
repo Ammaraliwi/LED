@@ -80,7 +80,7 @@ Payments are an append-only ledger. Refunds are negative records linked to the o
 - Private downloads require a current staff permission, upload ownership, or a booking owned by the current customer.
 - Invalid uploads are quarantined and removed from object storage. Admin deletion is refused while a product, project, or booking document still references the asset; an unreferenced asset is quarantined before its object is deleted and its metadata is retained as a deleted audit record.
 
-Configure bucket CORS to allow `PUT` from the exact staging application origin. Keep the bucket private and non-listable; public-classified assets are still served through short-lived signed URLs and private assets require application authorization first. Current Railway buckets use virtual-host style automatically; an older bucket can explicitly set `AWS_S3_URL_STYLE=path` if its Credentials tab requires path style.
+Admin and customer uploads pass through the authenticated application server, so the bucket does not need browser-write CORS. Keep the bucket private and non-listable; public-classified assets are still served through short-lived signed URLs and private assets require application authorization first. Private PDFs are downloaded as attachments. Current Railway buckets use virtual-host style automatically; an older bucket can explicitly set `AWS_S3_URL_STYLE=path` if its Credentials tab requires path style.
 
 ## MFA and account recovery
 

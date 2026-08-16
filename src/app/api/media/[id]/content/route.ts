@@ -36,5 +36,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     objectKey: asset.objectKey,
     method: "GET",
     expiresSeconds: asset.visibility === "public" ? 300 : 60,
+    responseContentDisposition: asset.visibility === "private" && asset.mimeType === "application/pdf"
+      ? `attachment; filename*=UTF-8''${encodeURIComponent(asset.originalName)}`
+      : undefined,
   }));
 }

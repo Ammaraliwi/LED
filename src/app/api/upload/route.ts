@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { mediaAssets } from "@/db/schema";
+import { requestAuditMetadata, writeAudit } from "@/lib/admin/audit";
 import { requireAdmin, requireCustomer } from "@/lib/admin/authz";
 import { errorResponse, ValidationError } from "@/lib/admin/errors";
 import { isStaffRole } from "@/lib/admin/permissions";
@@ -20,6 +21,7 @@ import {
 
 export async function POST(request: Request) {
   let mediaId: number | null = null;
+  let adminActorId: number | null = null;
   let uploadedObject: { bucket: string; objectKey: string } | null = null;
   try {
     assertSameOrigin(request);
@@ -30,6 +32,7 @@ export async function POST(request: Request) {
     if (isStaffRole(role)) {
       const actor = await requireAdmin("media.write");
       userId = actor.id;
+      adminActorId = actor.id;
     } else {
       const customer = await requireCustomer();
       userId = customer.userId;
@@ -37,6 +40,10 @@ export async function POST(request: Request) {
 
     const limit = await consumeRateLimit("upload", `${clientAddress(request)}:${userId}`);
     if (!limit.allowed) return NextResponse.json({ error: "Upload rate limit exceeded" }, { status: 429 });
+    const contentLength = Number(request.headers.get("content-length") || 0);
+    if (!Number.isFinite(contentLength) || contentLength > MAX_PRIVATE_MEDIA_BYTES + 1024 * 1024) {
+      throw new ValidationError("Upload request exceeds the supported limit");
+    }
 
     const formData = await request.formData();
     const file = formData.get("file");
@@ -71,6 +78,16 @@ export async function POST(request: Request) {
     await putObject(bucket, objectKey, bytes, file.type);
     uploadedObject = { bucket, objectKey };
     await db.update(mediaAssets).set({ status: "ready" }).where(eq(mediaAssets.id, asset.id));
+    if (adminActorId) {
+      await writeAudit({
+        actorUserId: adminActorId,
+        action: "media.uploaded",
+        entityType: "media_asset",
+        entityId: asset.id,
+        after: { visibility: requestedVisibility, mimeType: file.type, sizeBytes: file.size },
+        metadata: requestAuditMetadata(request),
+      });
+    }
     return NextResponse.json({
       success: true,
       mediaAssetId: asset.id,

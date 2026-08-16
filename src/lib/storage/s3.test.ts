@@ -24,10 +24,12 @@ test("Railway AWS variables configure one private bucket with virtual-host URLs"
     objectKey: "public/2026/08/16/01234567-89ab-cdef-0123-456789abcdef.png",
     method: "GET",
     expiresSeconds: 60,
+    responseContentDisposition: "attachment; filename*=UTF-8''invoice.pdf",
   }, railwayEnvironment));
   assert.equal(url.hostname, "ledwave-staging-a1b2c3.storage.railway.app");
   assert.equal(url.pathname, "/public/2026/08/16/01234567-89ab-cdef-0123-456789abcdef.png");
   assert.equal(url.searchParams.get("X-Amz-Expires"), "60");
+  assert.equal(url.searchParams.get("response-content-disposition"), "attachment; filename*=UTF-8''invoice.pdf");
   assert.equal(url.toString().includes("test-secret-key"), false);
 });
 

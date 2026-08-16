@@ -121,10 +121,14 @@ export function presignObject(options: {
   objectKey: string;
   method: "GET" | "PUT" | "HEAD" | "DELETE";
   expiresSeconds?: number;
+  responseContentDisposition?: string;
 }, env: NodeJS.ProcessEnv = process.env): string {
   const cfg = resolveStorageConfig(env);
   assertSafeObjectKey(options.objectKey);
   if (!Number.isInteger(options.expiresSeconds ?? 300) || (options.expiresSeconds ?? 300) < 1) throw new Error("Signed URL expiry is invalid.");
+  if (options.responseContentDisposition && (options.method !== "GET" || /[\r\n]/.test(options.responseContentDisposition) || options.responseContentDisposition.length > 512)) {
+    throw new Error("Signed response disposition is invalid.");
+  }
   const now = new Date();
   const { full, short } = amzDate(now);
   const service = "s3";
@@ -138,9 +142,10 @@ export function presignObject(options: {
     ["X-Amz-SignedHeaders", "host"],
   ]);
   if (cfg.sessionToken) params.set("X-Amz-Security-Token", cfg.sessionToken);
+  if (options.responseContentDisposition) params.set("response-content-disposition", options.responseContentDisposition);
 
   const canonicalQuery = [...params]
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([key, value]) => `${encode(key)}=${encode(value)}`)
     .join("&");
   const canonicalRequest = [
