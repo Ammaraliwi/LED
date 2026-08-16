@@ -2,11 +2,12 @@ import { db } from "@/db";
 import { projects } from "@/db/schema";
 import { PageHero } from "@/components/ui/page-hero";
 import { ProjectsGallery } from "@/components/home/projects-gallery";
+import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
-  const projectsData = await db.select().from(projects).orderBy(projects.sortOrder);
+  const projectsData = await db.select().from(projects).where(eq(projects.isActive, true)).orderBy(projects.sortOrder);
 
   return (
     <>

@@ -2,17 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { bookings, bookingAddons, bookingDocuments, bookingStatusHistory, equipment, ledProducts } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { auth } from "@/auth";
 import { z } from "zod";
+import { requireCustomer } from "@/lib/admin/authz";
+import { errorResponse } from "@/lib/admin/errors";
+import { assertSameOrigin } from "@/lib/security/request";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session?.user?.customerId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  try {
+  const { customerId } = await requireCustomer();
   const { id } = await params;
   const bookingId = Number(id);
-  const customerId = Number(session.user.customerId);
 
   const [booking] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
   if (!booking || booking.customerId !== customerId) {
@@ -43,6 +42,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     documents,
     statusHistory: statusHistory.sort((a, b) => a.changedAt.getTime() - b.changedAt.getTime()),
   });
+  } catch (error) {
+    return errorResponse(error);
+  }
 }
 
 const patchSchema = z.object({
@@ -52,13 +54,11 @@ const patchSchema = z.object({
 const CANCELLABLE_STATUSES = ["draft", "quotation_requested", "pending_approval", "confirmed", "deposit_paid", "scheduled"];
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session?.user?.customerId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  try {
+  assertSameOrigin(req);
+  const { customerId, userId } = await requireCustomer();
   const { id } = await params;
   const bookingId = Number(id);
-  const customerId = Number(session.user.customerId);
 
   const body = patchSchema.parse(await req.json());
 
@@ -71,14 +71,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!CANCELLABLE_STATUSES.includes(booking.status)) {
       return NextResponse.json({ error: "This booking can no longer be cancelled per our policy." }, { status: 400 });
     }
-    await db.update(bookings).set({ status: "cancelled", updatedAt: new Date() }).where(eq(bookings.id, bookingId));
-    await db.insert(bookingStatusHistory).values({
-      bookingId,
-      status: "cancelled",
-      note: "Cancelled by customer.",
+    await db.transaction(async (tx) => {
+      await tx.update(bookings).set({ status: "cancelled", updatedAt: new Date() }).where(eq(bookings.id, bookingId));
+      await tx.insert(bookingStatusHistory).values({
+        bookingId,
+        previousStatus: booking.status,
+        status: "cancelled",
+        changedByUserId: userId,
+        source: "customer",
+        note: "Cancelled by customer.",
+      });
     });
     return NextResponse.json({ success: true });
   }
 
   return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+  } catch (error) {
+    return errorResponse(error);
+  }
 }

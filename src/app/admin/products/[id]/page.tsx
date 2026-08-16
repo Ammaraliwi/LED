@@ -1,0 +1,18 @@
+import { notFound } from "next/navigation";
+import { AdminCommandButton, DynamicAdminForm } from "@/components/admin/dynamic-form";
+import { AdminCard, AdminPageHeader, StatusPill } from "@/components/admin/ui";
+import { productFields } from "@/app/admin/products/page";
+import { requireAdmin } from "@/lib/admin/authz";
+import { getProductDetail } from "@/lib/admin/queries";
+import { hasPermission } from "@/lib/admin/permissions";
+import { formatDate } from "@/lib/utils";
+
+export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const actor = await requireAdmin("products.read"); const data = await getProductDetail(Number((await params).id)); if (!data) notFound();
+  const canWrite = hasPermission(actor.role, "products.write"); const canInventory = hasPermission(actor.role, "inventory.write"); const product = data.product;
+  const fields = productFields.map((field) => ({ ...field, defaultValue: field.name === "pixelPitch" ? Number(product.pixelPitch) : field.name === "pricePerCabinetPerDay" ? Number(product.pricePerCabinetPerDay) : product[field.name as keyof typeof product] as string | number | boolean | null | Record<string, unknown> }));
+  return <><AdminPageHeader title={product.name} description={`P${Number(product.pixelPitch)} ${product.screenType} product · ${product.totalCabinets} total cabinets`} actions={<div className="flex items-center gap-2"><StatusPill value={product.isActive ? "active" : "inactive"} />{canWrite && product.isActive && <AdminCommandButton payload={{ action: "product.archive", id: product.id }} tone="danger" confirmMessage="Archive this product? It will remain visible in historical bookings.">Archive</AdminCommandButton>}</div>} />
+    <div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]"><div>{canWrite ? <DynamicAdminForm command="product.update" fixed={{ id: product.id }} fields={fields} nesting="data" title="Edit product" submitLabel="Save product" /> : <AdminCard className="p-5 text-sm text-muted">Your role has read-only product access.</AdminCard>}</div><div className="space-y-6">{canInventory && <DynamicAdminForm command="inventory.block_create" fixed={{ productId: product.id }} title="Add maintenance / unavailable block" submitLabel="Block inventory" fields={[{ name: "quantity", label: "Cabinet quantity", type: "number", valueType: "number", required: true }, { name: "reason", label: "Reason", type: "select", options: [{ value: "maintenance", label: "Maintenance" }, { value: "damage", label: "Damage" }, { value: "reserved", label: "Reserved / unavailable" }, { value: "other", label: "Other" }] }, { name: "startDate", label: "Start date", type: "date", required: true }, { name: "endDate", label: "End date", type: "date", required: true }, { name: "note", label: "Internal note", type: "textarea" }]} />}
+      <AdminCard className="overflow-hidden"><div className="px-5 py-4 font-semibold">Inventory blocks</div><div className="divide-y divide-white/8">{data.blocks.length ? data.blocks.map((block) => <div key={block.id} className="flex items-start justify-between gap-4 p-5"><div><div className="text-sm font-medium capitalize">{block.reason} · {block.quantity} cabinets</div><div className="mt-1 text-xs text-muted">{formatDate(block.startDate)} → {formatDate(block.endDate)}{block.note ? ` · ${block.note}` : ""}</div></div>{canInventory && !block.archivedAt && <AdminCommandButton payload={{ action: "inventory.block_archive", id: block.id }} confirmMessage="Remove this inventory block?">Archive</AdminCommandButton>}</div>) : <p className="p-5 text-sm text-muted">No inventory blocks.</p>}</div></AdminCard></div></div>
+  </>;
+}

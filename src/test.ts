@@ -1,0 +1,9 @@
+import "./lib/pricing.test";
+import "./lib/admin/permissions.test";
+import "./lib/booking-input.test";
+import "./lib/booking/inventory.test";
+import "./lib/booking/status-transitions.test";
+import "./lib/security/mfa.test";
+import "./lib/cms/schemas.test";
+import "./lib/storage/validation.test";
+import "./lib/storage/s3.test";

@@ -31,6 +31,7 @@ export function StepEventInfo({
           continue;
         }
         uploaded.push({
+          mediaAssetId: data.mediaAssetId,
           fileName: data.fileName,
           fileUrl: data.fileUrl,
           fileType: data.fileType,
@@ -44,8 +45,8 @@ export function StepEventInfo({
     setUploading(false);
   }
 
-  function removeDoc(fileUrl: string) {
-    update({ documents: state.documents.filter((d) => d.fileUrl !== fileUrl) });
+  function removeDoc(mediaAssetId: number) {
+    update({ documents: state.documents.filter((d) => d.mediaAssetId !== mediaAssetId) });
   }
 
   return (
@@ -142,7 +143,7 @@ export function StepEventInfo({
         {state.documents.length > 0 && (
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             {state.documents.map((doc) => (
-              <div key={doc.fileUrl} className="flex items-center justify-between gap-3 rounded-xl border border-border p-3">
+              <div key={doc.mediaAssetId} className="flex items-center justify-between gap-3 rounded-xl border border-border p-3">
                 <div className="flex items-center gap-2.5 min-w-0">
                   {doc.category === "pdf" ? (
                     <FileText className="h-4 w-4 shrink-0 text-accent" />
@@ -151,7 +152,7 @@ export function StepEventInfo({
                   )}
                   <span className="truncate text-xs text-foreground">{doc.fileName}</span>
                 </div>
-                <button onClick={() => removeDoc(doc.fileUrl)} className="shrink-0 text-muted hover:text-danger">
+                <button onClick={() => removeDoc(doc.mediaAssetId)} className="shrink-0 text-muted hover:text-danger">
                   <X className="h-4 w-4" />
                 </button>
               </div>

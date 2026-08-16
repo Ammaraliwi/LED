@@ -1,16 +1,15 @@
-import { auth } from "@/auth";
 import { db } from "@/db";
 import { bookings, payments } from "@/db/schema";
 import { eq, inArray, desc } from "drizzle-orm";
 import { Container } from "@/components/ui/container";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { CreditCard } from "lucide-react";
+import { requireCustomer } from "@/lib/admin/authz";
 
 export const dynamic = "force-dynamic";
 
 export default async function PaymentsPage() {
-  const session = await auth();
-  const customerId = Number(session!.user!.customerId);
+  const { customerId } = await requireCustomer();
 
   const myBookings = await db.select().from(bookings).where(eq(bookings.customerId, customerId));
   const bookingIds = myBookings.map((b) => b.id);
@@ -43,7 +42,7 @@ export default async function PaymentsPage() {
                     {p.method.replace(/_/g, " ")} · {formatDate(p.paidAt)} {p.reference && `· Ref: ${p.reference}`}
                   </div>
                 </div>
-                <span className="font-display text-sm font-semibold text-success">{formatCurrency(p.amount)}</span>
+                <span className={`font-display text-sm font-semibold ${p.kind === "payment" ? "text-success" : "text-red-300"}`}>{p.kind === "payment" ? "" : "− "}{formatCurrency(p.amount)}</span>
               </div>
             );
           })}

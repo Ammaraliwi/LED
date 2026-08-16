@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { auth } from "@/auth";
 import { db } from "@/db";
 import { bookings, ledProducts } from "@/db/schema";
 import { eq, desc, inArray } from "drizzle-orm";
@@ -7,14 +6,14 @@ import { Container } from "@/components/ui/container";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { FileText } from "lucide-react";
+import { requireCustomer } from "@/lib/admin/authz";
 
 export const dynamic = "force-dynamic";
 
 const QUOTATION_STATUSES = ["quotation_requested", "pending_approval"];
 
 export default async function QuotationsPage() {
-  const session = await auth();
-  const customerId = Number(session!.user!.customerId);
+  const { customerId } = await requireCustomer();
 
   const allBookings = await db.select().from(bookings).where(eq(bookings.customerId, customerId)).orderBy(desc(bookings.createdAt));
   const quotations = allBookings.filter((b) => QUOTATION_STATUSES.includes(b.status));

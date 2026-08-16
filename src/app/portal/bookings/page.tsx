@@ -1,18 +1,17 @@
 import Link from "next/link";
-import { auth } from "@/auth";
 import { db } from "@/db";
 import { bookings, ledProducts } from "@/db/schema";
 import { eq, desc, inArray } from "drizzle-orm";
 import { Container } from "@/components/ui/container";
 import { StatusBadge } from "@/components/portal/status-badge";
-import { EmptyState } from "@/app/portal/page";
+import { EmptyState } from "@/components/portal/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { requireCustomer } from "@/lib/admin/authz";
 
 export const dynamic = "force-dynamic";
 
 export default async function BookingsPage() {
-  const session = await auth();
-  const customerId = Number(session!.user!.customerId);
+  const { customerId } = await requireCustomer();
 
   const allBookings = await db
     .select()
