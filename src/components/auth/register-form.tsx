@@ -111,10 +111,11 @@ export function RegisterForm({ onSuccess, compact = false }: { onSuccess?: () =>
           name="password"
           type="password"
           required
-          minLength={8}
+          minLength={12}
+          maxLength={72}
           className="w-full rounded-xl border border-border bg-surface-2/50 px-4 py-3 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
         />
-        <p className="mt-1.5 text-xs text-muted-2">Minimum 8 characters.</p>
+        <p className="mt-1.5 text-xs text-muted-2">12–72 characters with uppercase, lowercase and a number.</p>
       </div>
 
       <Button type="submit" disabled={loading} className="w-full justify-center">

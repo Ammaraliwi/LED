@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { LedWallVisual } from "@/components/home/led-wall-visual";
 import { Container } from "@/components/ui/container";
 
-export function Hero() {
+export interface HeroContent { eyebrow: string; title: string; highlight: string; description: string; primaryLabel: string; primaryHref: string; secondaryLabel: string; secondaryHref: string; }
+
+export function Hero({ content }: { content: HeroContent }) {
   return (
     <section className="relative overflow-hidden pb-28 pt-16 sm:pt-24">
       <div className="absolute inset-0 led-grid-bg" />
@@ -26,7 +28,7 @@ export function Hero() {
             className="inline-flex items-center gap-2 rounded-full glass px-4 py-1.5 text-xs font-medium text-muted"
           >
             <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-            Trusted for 100+ premium live events
+            {content.eyebrow}
           </motion.div>
 
           <motion.h1
@@ -35,7 +37,7 @@ export function Hero() {
             transition={{ duration: 0.7, delay: 0.1 }}
             className="font-display mt-8 max-w-4xl text-4xl font-semibold leading-[1.05] tracking-tight text-balance sm:text-6xl lg:text-7xl"
           >
-            Make Your Event <span className="text-gradient glow-text">Impossible to Ignore.</span>
+            {content.title} <span className="text-gradient glow-text">{content.highlight}</span>
           </motion.h1>
 
           <motion.p
@@ -44,8 +46,7 @@ export function Hero() {
             transition={{ duration: 0.7, delay: 0.2 }}
             className="mt-7 max-w-2xl text-base leading-relaxed text-muted sm:text-lg"
           >
-            Premium modular LED screens for conferences, exhibitions, celebrations and live events — delivered,
-            installed and supported by our technical team.
+            {content.description}
           </motion.p>
 
           <motion.div
@@ -54,13 +55,13 @@ export function Hero() {
             transition={{ duration: 0.7, delay: 0.3 }}
             className="mt-10 flex flex-col items-center gap-4 sm:flex-row"
           >
-            <Button href="/configure" size="lg">
-              Build Your Screen
+            <Button href={content.primaryHref} size="lg">
+              {content.primaryLabel}
               <ArrowRight className="h-4 w-4" />
             </Button>
-            <Button href="/screens" size="lg" variant="outline">
+            <Button href={content.secondaryHref} size="lg" variant="outline">
               <PlayCircle className="h-4 w-4" />
-              Explore Our Screens
+              {content.secondaryLabel}
             </Button>
           </motion.div>
         </div>

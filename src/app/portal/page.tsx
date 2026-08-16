@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { auth } from "@/auth";
 import { db } from "@/db";
 import { bookings, invoices, ledProducts } from "@/db/schema";
 import { eq, desc, inArray } from "drizzle-orm";
@@ -8,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { CalendarCheck, Clock, FileText, Wallet, ArrowRight, Plus } from "lucide-react";
+import { requireCustomer } from "@/lib/admin/authz";
+import { EmptyState } from "@/components/portal/empty-state";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +16,7 @@ const ACTIVE_STATUSES = ["confirmed", "deposit_paid", "scheduled", "equipment_pr
 const QUOTATION_STATUSES = ["quotation_requested", "pending_approval"];
 
 export default async function PortalDashboard() {
-  const session = await auth();
-  const customerId = Number(session!.user!.customerId);
+  const { customerId } = await requireCustomer();
 
   const allBookings = await db
     .select()
@@ -123,14 +123,3 @@ function DashCard({ icon: Icon, label, value, sub }: { icon: React.ElementType; 
   );
 }
 
-export function EmptyState() {
-  return (
-    <div className="surface-card mt-5 flex flex-col items-center justify-center gap-3 rounded-2xl p-14 text-center">
-      <CalendarCheck className="h-8 w-8 text-muted-2" />
-      <p className="text-sm text-muted">You don&apos;t have any bookings yet.</p>
-      <Button href="/configure" size="sm">
-        Build Your First Screen
-      </Button>
-    </div>
-  );
-}

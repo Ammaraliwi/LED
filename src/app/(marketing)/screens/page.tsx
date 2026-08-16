@@ -4,11 +4,12 @@ import { PageHero } from "@/components/ui/page-hero";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
 import { Sun, Building2, Gauge, Layers } from "lucide-react";
+import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 export default async function ScreensPage() {
-  const products = await db.select().from(ledProducts).orderBy(ledProducts.id);
+  const products = await db.select().from(ledProducts).where(eq(ledProducts.isActive, true)).orderBy(ledProducts.id);
 
   return (
     <>

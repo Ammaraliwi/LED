@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { auth } from "@/auth";
 import { db } from "@/db";
 import { bookings, invoices } from "@/db/schema";
 import { eq, inArray, desc } from "drizzle-orm";
@@ -7,12 +6,12 @@ import { Container } from "@/components/ui/container";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Receipt } from "lucide-react";
+import { requireCustomer } from "@/lib/admin/authz";
 
 export const dynamic = "force-dynamic";
 
 export default async function InvoicesPage() {
-  const session = await auth();
-  const customerId = Number(session!.user!.customerId);
+  const { customerId } = await requireCustomer();
 
   const myBookings = await db.select().from(bookings).where(eq(bookings.customerId, customerId));
   const bookingIds = myBookings.map((b) => b.id);
